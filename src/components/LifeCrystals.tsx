@@ -61,12 +61,7 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
             {editingIdx === idx && !isOpponent && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setEditingIdx(null)} />
-                <div className="fixed bg-gray-900 border border-gray-600 rounded-lg p-2 z-40 min-w-[160px] max-h-[80dvh] overflow-y-auto space-y-1.5 shadow-xl"
-                  style={{
-                    left: '50%',
-                    top: '50%',
-                    transform: 'translate(-50%, -50%)',
-                  }}>
+                <div className="absolute top-11 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 rounded-lg p-2 z-40 min-w-[160px] space-y-1.5 shadow-xl">
                   <div className="text-xs text-gray-400 font-bold">Кристалл {idx + 1}</div>
 
                   {/* Health controls */}

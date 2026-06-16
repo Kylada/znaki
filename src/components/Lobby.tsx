@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { networkManager } from '../networking/peer';
 import { useGameStore } from '../store/gameStore';
 import { v4 as uuidv4 } from 'uuid';
-import { loadDefaultCards } from '../data/defaultCards';
 
 interface LobbyProps {
   onGameStart: () => void;
@@ -13,7 +12,7 @@ interface LobbyProps {
 /* ------------------------------------------------------------------ */
 const InfoModal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
   <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-    <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '85dvh' }}>
+    <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-700">
         <h2 className="text-lg font-bold text-yellow-400">{title}</h2>
         <button className="text-gray-400 hover:text-white text-xl leading-none" onClick={onClose}>✕</button>
@@ -296,83 +295,78 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
 
   const { initPlayer, setLocalPlayerId, setRemotePlayerId, setOnSendAction, addChat, applyFullState } = useGameStore();
 
-  const startSoloOrLocal = async () => {
+  const startSoloOrLocal = () => {
     const p1Id = uuidv4();
     const p2Id = uuidv4();
     setLocalPlayerId(p1Id);
     initPlayer(p1Id, playerName || 'Игрок 1');
     initPlayer(p2Id, 'Игрок 2 (Оппонент)');
     applyFullState({ currentTurnPlayerId: p1Id, priorityPlayerId: p1Id });
-    // Auto-load default cards from the spreadsheet
-    loadDefaultCards().then(cards => {
-      if (cards.length > 0) {
-        useGameStore.getState().importCardTemplates(cards);
-        useGameStore.getState().addLog(`📋 Загружено ${cards.length} карт из базы`);
-      }
-    });
     onGameStart();
   };
 
   const startHost = async () => {
     setError('');
-    setStatus('Инициализация...');
+    setStatus('Загрузка PeerJS...');
     try {
+      // Set up message handler first
+      networkManager.onMessage = (msg) => {
+        console.log('[Host] Got message:', msg.type);
+        if (msg.type === 'chat') {
+          addChat(msg.data.sender, msg.data.text);
+        } else if (msg.type === 'action') {
+          // handle remote actions
+        }
+      };
+
       const id = await networkManager.init();
       setPeerId(id);
-      setStatus('Ожидание подключения оппонента...');
+      setStatus('Ожидание подключения оппонента... (ID скопирован)');
 
+      // Set up connection handler - fires when someone connects to us
       networkManager.onConnected = (remoteId) => {
+        console.log('[Host] Opponent connected:', remoteId);
         const p1Id = uuidv4();
-        const p2Id = remoteId;
+        const p2Id = uuidv4(); // generate a proper UUID, not the peer ID
         setLocalPlayerId(p1Id);
         setRemotePlayerId(p2Id);
         initPlayer(p1Id, playerName || 'Хост');
         initPlayer(p2Id, 'Оппонент');
         applyFullState({ currentTurnPlayerId: p1Id, priorityPlayerId: p1Id });
 
-        networkManager.send({
-          type: 'ready',
-          data: { hostId: p1Id, guestId: p2Id, hostName: playerName || 'Хост' }
-        });
-
         setOnSendAction((action: any) => {
           networkManager.send({ type: 'action', data: action });
         });
 
+        // Small delay to ensure the connection is fully ready before sending
+        setTimeout(() => {
+          networkManager.send({
+            type: 'ready',
+            data: { hostId: p1Id, guestId: p2Id, hostName: playerName || 'Хост' }
+          });
+          console.log('[Host] Sent ready message');
+        }, 500);
+
         setConnected(true);
-        setStatus('Подключен!');
-
-        // Auto-load default cards
-        loadDefaultCards().then(cards => {
-          if (cards.length > 0) {
-            useGameStore.getState().importCardTemplates(cards);
-          }
-        });
-      };
-
-      networkManager.onMessage = (msg) => {
-        if (msg.type === 'chat') {
-          addChat(msg.data.sender, msg.data.text);
-        } else if (msg.type === 'action') {
-          handleRemoteAction(msg.data);
-        }
+        setStatus('Оппонент подключен!');
       };
     } catch (err: any) {
       setError(err.message || 'Ошибка подключения');
+      setStatus('');
     }
   };
 
   const startJoin = async () => {
-    if (!remotePeerId) return;
+    if (!remotePeerId.trim()) return;
     setError('');
-    setStatus('Подключение...');
+    setStatus('Загрузка PeerJS...');
     try {
-      await networkManager.init();
-      await networkManager.connect(remotePeerId);
-
+      // Set up message handler BEFORE connecting so we don't miss the ready message
       networkManager.onMessage = (msg) => {
+        console.log('[Guest] Got message:', msg.type);
         if (msg.type === 'ready') {
           const { hostId, guestId, hostName } = msg.data;
+          console.log('[Guest] Ready! hostId:', hostId, 'guestId:', guestId);
           setLocalPlayerId(guestId);
           setRemotePlayerId(hostId);
           initPlayer(hostId, hostName || 'Хост');
@@ -384,27 +378,28 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
           });
 
           setConnected(true);
-          setStatus('Подключен!');
-
-          // Auto-load default cards
-          loadDefaultCards().then(cards => {
-            if (cards.length > 0) {
-              useGameStore.getState().importCardTemplates(cards);
-            }
-          });
+          setStatus('Подключен к ' + (hostName || 'Хосту') + '!');
         } else if (msg.type === 'chat') {
           addChat(msg.data.sender, msg.data.text);
         } else if (msg.type === 'action') {
-          handleRemoteAction(msg.data);
+          // handle remote actions
         }
       };
+
+      setStatus('Подключение к серверу...');
+      await networkManager.init();
+      
+      setStatus('Подключение к оппоненту...');
+      await networkManager.connect(remotePeerId.trim());
+      
+      // Flush any messages that arrived during connect
+      networkManager.flushMessageQueue();
+      
+      setStatus('Соединение установлено, ожидание подтверждения...');
     } catch (err: any) {
       setError(err.message || 'Ошибка подключения');
+      setStatus('');
     }
-  };
-
-  const handleRemoteAction = (_action: any) => {
-    // In a full implementation, would apply the remote action to the store
   };
 
   useEffect(() => {
@@ -412,7 +407,7 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
   }, []);
 
   return (
-    <div className="bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center p-4 overflow-y-auto" style={{ minHeight: '100dvh' }}>
+    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center p-4">
       <div className="max-w-md w-full space-y-6">
         {/* Title */}
         <div className="text-center space-y-2">

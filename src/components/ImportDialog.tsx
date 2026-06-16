@@ -46,7 +46,7 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({ onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-600 rounded-xl w-full max-w-2xl overflow-y-auto" style={{ maxHeight: '90dvh' }}>
+      <div className="bg-gray-900 border border-gray-600 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-4 border-b border-gray-700 flex justify-between items-center">
           <h2 className="text-lg font-bold text-white">📋 Импорт карт</h2>
           <button className="text-gray-400 hover:text-white text-xl" onClick={onClose}>✕</button>
