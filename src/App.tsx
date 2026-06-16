@@ -16,7 +16,7 @@ class ErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: 40, color: '#ff6b6b', background: '#111', minHeight: '100vh', fontFamily: 'monospace' }}>
+        <div style={{ padding: 40, color: '#ff6b6b', background: '#111', minHeight: '100dvh', fontFamily: 'monospace' }}>
           <h1 style={{ fontSize: 24, marginBottom: 16 }}>⚠️ Ошибка приложения</h1>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, color: '#ccc' }}>{this.state.error}</pre>
           <button

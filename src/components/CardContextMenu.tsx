@@ -65,17 +65,20 @@ export const CardContextMenu: React.FC = () => {
     closeContextMenu();
   };
 
-  // Clamp menu position to viewport
+  // Clamp menu position to viewport, accounting for taskbar and edges
+  const menuW = 230;
+  const menuH = Math.min(window.innerHeight * 0.8, 500);
   const menuStyle: React.CSSProperties = {
-    left: Math.min(contextMenuPosition.x, window.innerWidth - 220),
-    top: Math.min(contextMenuPosition.y, window.innerHeight - 400),
+    left: Math.max(4, Math.min(contextMenuPosition.x, window.innerWidth - menuW - 4)),
+    top: Math.max(4, Math.min(contextMenuPosition.y, window.innerHeight - menuH - 4)),
+    maxHeight: `calc(100dvh - 8px)`,
   };
 
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
       <div
-        className="fixed z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm"
+        className="fixed z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[220px] overflow-y-auto text-sm"
         style={menuStyle}
       >
         {/* Card name header */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { networkManager } from '../networking/peer';
 import { useGameStore } from '../store/gameStore';
 import { v4 as uuidv4 } from 'uuid';
+import { loadDefaultCards } from '../data/defaultCards';
 
 interface LobbyProps {
   onGameStart: () => void;
@@ -12,7 +13,7 @@ interface LobbyProps {
 /* ------------------------------------------------------------------ */
 const InfoModal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
   <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-    <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+    <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '85dvh' }}>
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-700">
         <h2 className="text-lg font-bold text-yellow-400">{title}</h2>
         <button className="text-gray-400 hover:text-white text-xl leading-none" onClick={onClose}>✕</button>
@@ -295,13 +296,20 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
 
   const { initPlayer, setLocalPlayerId, setRemotePlayerId, setOnSendAction, addChat, applyFullState } = useGameStore();
 
-  const startSoloOrLocal = () => {
+  const startSoloOrLocal = async () => {
     const p1Id = uuidv4();
     const p2Id = uuidv4();
     setLocalPlayerId(p1Id);
     initPlayer(p1Id, playerName || 'Игрок 1');
     initPlayer(p2Id, 'Игрок 2 (Оппонент)');
     applyFullState({ currentTurnPlayerId: p1Id, priorityPlayerId: p1Id });
+    // Auto-load default cards from the spreadsheet
+    loadDefaultCards().then(cards => {
+      if (cards.length > 0) {
+        useGameStore.getState().importCardTemplates(cards);
+        useGameStore.getState().addLog(`📋 Загружено ${cards.length} карт из базы`);
+      }
+    });
     onGameStart();
   };
 
@@ -333,6 +341,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
 
         setConnected(true);
         setStatus('Подключен!');
+
+        // Auto-load default cards
+        loadDefaultCards().then(cards => {
+          if (cards.length > 0) {
+            useGameStore.getState().importCardTemplates(cards);
+          }
+        });
       };
 
       networkManager.onMessage = (msg) => {
@@ -370,6 +385,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
 
           setConnected(true);
           setStatus('Подключен!');
+
+          // Auto-load default cards
+          loadDefaultCards().then(cards => {
+            if (cards.length > 0) {
+              useGameStore.getState().importCardTemplates(cards);
+            }
+          });
         } else if (msg.type === 'chat') {
           addChat(msg.data.sender, msg.data.text);
         } else if (msg.type === 'action') {
@@ -390,7 +412,7 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center p-4">
+    <div className="bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center p-4 overflow-y-auto" style={{ minHeight: '100dvh' }}>
       <div className="max-w-md w-full space-y-6">
         {/* Title */}
         <div className="text-center space-y-2">

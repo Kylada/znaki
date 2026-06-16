@@ -4,13 +4,18 @@
   box-sizing: border-box;
 }
 
-body {
+html, body, #root {
   margin: 0;
   padding: 0;
+  width: 100%;
+  height: 100dvh; /* use dynamic viewport height to respect mobile/OS taskbars */
+  overflow: hidden;
+}
+
+body {
   background: #0a0a0f;
   color: white;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  overflow: hidden;
 }
 
 /* Scrollbar styling */

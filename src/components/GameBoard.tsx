@@ -23,7 +23,7 @@ export const GameBoard: React.FC = () => {
   const opponentId = playerIds.find(id => id !== localPlayerId) || '';
 
   return (
-    <div className="h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex flex-col overflow-hidden text-white">
+    <div className="bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex flex-col overflow-hidden text-white" style={{ height: '100dvh' }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-2 py-1 bg-gray-900/80 border-b border-gray-800 flex-shrink-0 gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">
