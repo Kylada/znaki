@@ -309,46 +309,47 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
     setError('');
     setStatus('Загрузка PeerJS...');
     try {
-      // Set up message handler first
-      networkManager.onMessage = (msg) => {
-        console.log('[Host] Got message:', msg.type);
-        if (msg.type === 'chat') {
-          addChat(msg.data.sender, msg.data.text);
-        } else if (msg.type === 'action') {
-          // handle remote actions
-        }
-      };
-
       const id = await networkManager.init();
       setPeerId(id);
-      setStatus('Ожидание подключения оппонента... (ID скопирован)');
+      setStatus('Ожидание подключения оппонента...');
 
-      // Set up connection handler - fires when someone connects to us
-      networkManager.onConnected = (remoteId) => {
-        console.log('[Host] Opponent connected:', remoteId);
-        const p1Id = uuidv4();
-        const p2Id = uuidv4(); // generate a proper UUID, not the peer ID
-        setLocalPlayerId(p1Id);
-        setRemotePlayerId(p2Id);
-        initPlayer(p1Id, playerName || 'Хост');
-        initPlayer(p2Id, 'Оппонент');
-        applyFullState({ currentTurnPlayerId: p1Id, priorityPlayerId: p1Id });
+      const p1Id = uuidv4();
 
-        setOnSendAction((action: any) => {
-          networkManager.send({ type: 'action', data: action });
-        });
+      // When guest connects, the host receives the connection
+      networkManager.onConnected = (remotePeerId) => {
+        console.log('[Host] Guest connected, peer:', remotePeerId);
+        setStatus('Оппонент подключился! Обмен данными...');
+      };
 
-        // Small delay to ensure the connection is fully ready before sending
-        setTimeout(() => {
+      // Listen for the guest's "hello" message, then respond with "ready"
+      networkManager.onMessage = (msg) => {
+        console.log('[Host] Received:', msg.type);
+        if (msg.type === 'chat') {
+          addChat(msg.data.sender, msg.data.text);
+        } else if ((msg as any).type === 'hello') {
+          // Guest says hello — now we know data channel works both ways
+          const guestName = (msg as any).data?.name || 'Гость';
+          const p2Id = uuidv4();
+
+          setLocalPlayerId(p1Id);
+          setRemotePlayerId(p2Id);
+          initPlayer(p1Id, playerName || 'Хост');
+          initPlayer(p2Id, guestName);
+          applyFullState({ currentTurnPlayerId: p1Id, priorityPlayerId: p1Id });
+
+          setOnSendAction((action: any) => {
+            networkManager.send({ type: 'action', data: action });
+          });
+
+          // Send ready back to guest
           networkManager.send({
             type: 'ready',
             data: { hostId: p1Id, guestId: p2Id, hostName: playerName || 'Хост' }
           });
-          console.log('[Host] Sent ready message');
-        }, 500);
 
-        setConnected(true);
-        setStatus('Оппонент подключен!');
+          setConnected(true);
+          setStatus(`Подключен! (${guestName})`);
+        }
       };
     } catch (err: any) {
       setError(err.message || 'Ошибка подключения');
@@ -361,12 +362,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
     setError('');
     setStatus('Загрузка PeerJS...');
     try {
-      // Set up message handler BEFORE connecting so we don't miss the ready message
+      // Listen for the host's "ready" response
       networkManager.onMessage = (msg) => {
-        console.log('[Guest] Got message:', msg.type);
+        console.log('[Guest] Received:', msg.type);
         if (msg.type === 'ready') {
           const { hostId, guestId, hostName } = msg.data;
-          console.log('[Guest] Ready! hostId:', hostId, 'guestId:', guestId);
+          console.log('[Guest] Got ready! hostId:', hostId, 'guestId:', guestId);
+
           setLocalPlayerId(guestId);
           setRemotePlayerId(hostId);
           initPlayer(hostId, hostName || 'Хост');
@@ -381,21 +383,23 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
           setStatus('Подключен к ' + (hostName || 'Хосту') + '!');
         } else if (msg.type === 'chat') {
           addChat(msg.data.sender, msg.data.text);
-        } else if (msg.type === 'action') {
-          // handle remote actions
         }
       };
 
       setStatus('Подключение к серверу...');
       await networkManager.init();
-      
+
       setStatus('Подключение к оппоненту...');
       await networkManager.connect(remotePeerId.trim());
-      
-      // Flush any messages that arrived during connect
-      networkManager.flushMessageQueue();
-      
-      setStatus('Соединение установлено, ожидание подтверждения...');
+
+      // Connection open! Send "hello" to host so they know we're ready to receive
+      setStatus('Соединение установлено! Подтверждение...');
+      networkManager.send({
+        type: 'hello' as any,
+        data: { name: playerName || 'Гость' }
+      });
+      console.log('[Guest] Sent hello to host');
+
     } catch (err: any) {
       setError(err.message || 'Ошибка подключения');
       setStatus('');
