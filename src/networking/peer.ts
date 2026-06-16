@@ -1,13 +1,23 @@
 import type { PeerMessage } from '../types';
 
-let PeerClass: any = null;
-
-async function loadPeer() {
-  if (!PeerClass) {
-    const mod = await import('peerjs');
-    PeerClass = mod.Peer || mod.default;
-  }
-  return PeerClass;
+function loadPeerJS(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).Peer) {
+      resolve((window as any).Peer);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+    script.onload = () => {
+      if ((window as any).Peer) {
+        resolve((window as any).Peer);
+      } else {
+        reject(new Error('PeerJS failed to load'));
+      }
+    };
+    script.onerror = () => reject(new Error('Failed to load PeerJS from CDN'));
+    document.head.appendChild(script);
+  });
 }
 
 export class NetworkManager {
@@ -19,10 +29,10 @@ export class NetworkManager {
   localId: string = '';
 
   async init(customId?: string): Promise<string> {
-    const Peer = await loadPeer();
+    const PeerClass = await loadPeerJS();
     return new Promise((resolve, reject) => {
       try {
-        this.peer = customId ? new Peer(customId) : new Peer();
+        this.peer = customId ? new PeerClass(customId) : new PeerClass();
         this.peer.on('open', (id: string) => {
           this.localId = id;
           resolve(id);

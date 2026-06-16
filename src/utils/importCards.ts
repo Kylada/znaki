@@ -1,13 +1,6 @@
+import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import type { CardTemplate, CardType, Element, SpellSubtype, ArtifactSubtype } from '../types';
-
-let _XLSX: any = null;
-async function getXLSX() {
-  if (!_XLSX) {
-    _XLSX = await import('xlsx');
-  }
-  return _XLSX;
-}
 
 const elementLetterMap: Record<string, Element> = {
   'a': 'Хаос',
@@ -178,7 +171,6 @@ export function parseSpreadsheetData(data: any[][]): CardTemplate[] {
 }
 
 export async function importFromFile(file: File): Promise<CardTemplate[]> {
-  const XLSX = await getXLSX();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -216,7 +208,6 @@ export async function importFromGoogleSheets(url: string): Promise<CardTemplate[
   if (!response.ok) throw new Error('Не удалось загрузить таблицу. Убедитесь, что она доступна по ссылке (Файл → Поделиться → Все, у кого есть ссылка).');
 
   const csvText = await response.text();
-  const XLSX = await getXLSX();
   const workbook = XLSX.read(csvText, { type: 'string' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
