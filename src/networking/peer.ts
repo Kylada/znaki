@@ -1,5 +1,15 @@
 import type { PeerMessage } from '../types';
 
+let PeerClass: any = null;
+
+async function loadPeer() {
+  if (!PeerClass) {
+    const mod = await import('peerjs');
+    PeerClass = mod.Peer || mod.default;
+  }
+  return PeerClass;
+}
+
 export class NetworkManager {
   peer: any = null;
   connection: any = null;
@@ -8,17 +18,11 @@ export class NetworkManager {
   onDisconnected: (() => void) | null = null;
   localId: string = '';
 
-  private async getPeerClass(): Promise<any> {
-    // Use dynamic import - works with vite bundler
-    const mod = await import('peerjs');
-    return mod.Peer || mod.default || mod;
-  }
-
   async init(customId?: string): Promise<string> {
-    const PeerCls = await this.getPeerClass();
+    const Peer = await loadPeer();
     return new Promise((resolve, reject) => {
       try {
-        this.peer = customId ? new PeerCls(customId) : new PeerCls();
+        this.peer = customId ? new Peer(customId) : new Peer();
         this.peer.on('open', (id: string) => {
           this.localId = id;
           resolve(id);

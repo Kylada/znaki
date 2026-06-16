@@ -4,17 +4,13 @@
   box-sizing: border-box;
 }
 
-html, body {
+body {
   margin: 0;
   padding: 0;
-  height: 100%;
   background: #0a0a0f;
   color: white;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-}
-
-#root {
-  min-height: 100%;
+  overflow: hidden;
 }
 
 /* Scrollbar styling */

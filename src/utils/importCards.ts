@@ -215,8 +215,8 @@ export async function importFromGoogleSheets(url: string): Promise<CardTemplate[
   const response = await fetch(csvUrl);
   if (!response.ok) throw new Error('Не удалось загрузить таблицу. Убедитесь, что она доступна по ссылке (Файл → Поделиться → Все, у кого есть ссылка).');
 
-  const XLSX = await getXLSX();
   const csvText = await response.text();
+  const XLSX = await getXLSX();
   const workbook = XLSX.read(csvText, { type: 'string' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
