@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #0a0a0f;
+  color: white;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Card rotation for defense position */
+.rotate-90 {
+  transform: rotate(90deg);
+  transform-origin: center center;
+}
+
+/* Drag and drop visual feedback */
+[draggable="true"] {
+  cursor: grab;
+}
+[draggable="true"]:active {
+  cursor: grabbing;
+  opacity: 0.7;
+}
+
+/* Animation for chain links */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.3); }
+  50% { box-shadow: 0 0 15px rgba(168, 85, 247, 0.6); }
+}
+
+.chain-active {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Animation for effect activation */
+@keyframes flash {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(2); }
+  100% { filter: brightness(1); }
+}
+
+.effect-activate {
+  animation: flash 0.5s ease;
+}

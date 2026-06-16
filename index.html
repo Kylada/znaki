@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Знаки — Симулятор</title>
+    <script>
+      // Polyfills for Node.js globals used by PeerJS and XLSX
+      if (typeof globalThis.process === 'undefined') {
+        globalThis.process = { env: {}, browser: true, version: '', nextTick: function(fn) { setTimeout(fn, 0); } };
+      }
+      if (typeof globalThis.Buffer === 'undefined') {
+        globalThis.Buffer = {
+          isBuffer: function() { return false; },
+          from: function(data) {
+            if (typeof data === 'string') {
+              return new TextEncoder().encode(data);
+            }
+            return new Uint8Array(data);
+          },
+          alloc: function(size) { return new Uint8Array(size); },
+          allocUnsafe: function(size) { return new Uint8Array(size); },
+          concat: function(list) {
+            var totalLength = list.reduce(function(sum, buf) { return sum + buf.length; }, 0);
+            var result = new Uint8Array(totalLength);
+            var offset = 0;
+            list.forEach(function(buf) { result.set(buf, offset); offset += buf.length; });
+            return result;
+          }
+        };
+      }
+      if (typeof globalThis.global === 'undefined') {
+        globalThis.global = globalThis;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
