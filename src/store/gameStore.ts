@@ -15,10 +15,12 @@ interface GameStore extends GameState {
   contextMenuPosition: { x: number; y: number } | null;
   chatMessages: { sender: string; text: string }[];
   onSendAction: ((action: any) => void) | null;
+  isRemoteAction: boolean;
 
   setLocalPlayerId: (id: string) => void;
   setRemotePlayerId: (id: string | null) => void;
   setOnSendAction: (fn: ((action: any) => void) | null) => void;
+  setRemoteAction: (val: boolean) => void;
 
   initPlayer: (id: string, name: string) => void;
   importCardTemplates: (templates: CardTemplate[]) => void;
@@ -143,10 +145,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   contextMenuPosition: null,
   chatMessages: [],
   onSendAction: null,
+  isRemoteAction: false,
 
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
   setOnSendAction: (fn) => set({ onSendAction: fn }),
+  setRemoteAction: (val) => set({ isRemoteAction: val }),
 
   initPlayer: (id, name) => set(state => ({
     players: {
@@ -198,137 +202,158 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
-  shuffleDeck: (playerId, isSignDeck) => set(state => {
-    const player = state.players[playerId];
-    if (!player) return state;
-    const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
-    const deckCards = [...player.cards.filter(c => c.zone === zone)];
-    const otherCards = player.cards.filter(c => c.zone !== zone);
-    for (let i = deckCards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deckCards[i], deckCards[j]] = [deckCards[j], deckCards[i]];
+  shuffleDeck: (playerId, isSignDeck) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
+      const deckCards = [...player.cards.filter(c => c.zone === zone)];
+      const otherCards = player.cards.filter(c => c.zone !== zone);
+      for (let i = deckCards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deckCards[i], deckCards[j]] = [deckCards[j], deckCards[i]];
+      }
+      deckCards.forEach((c, i) => c.order = i);
+      return {
+        players: { ...state.players, [playerId]: { ...player, cards: [...otherCards, ...deckCards] } },
+        log: [...state.log, `${player.name} перемешал ${isSignDeck ? 'Колоду Знаков' : 'Основную Колоду'}`]
+      };
+    });
+    if (!get().isRemoteAction) {
+      const onSend = get().onSendAction;
+      if (onSend) onSend({ type: 'action', data: { type: 'shuffleDeck', payload: { playerId, isSignDeck } } });
     }
-    deckCards.forEach((c, i) => c.order = i);
-    return {
-      players: { ...state.players, [playerId]: { ...player, cards: [...otherCards, ...deckCards] } },
-      log: [...state.log, `${player.name} перемешал ${isSignDeck ? 'Колоду Знаков' : 'Основную Колоду'}`]
-    };
-  }),
+  },
 
-  drawCard: (playerId) => set(state => {
-    const player = state.players[playerId];
-    if (!player) return state;
-    const deckCards = player.cards.filter(c => c.zone === 'mainDeck').sort((a, b) => a.order - b.order);
-    if (deckCards.length === 0) return state;
-    const topCard = deckCards[0];
-    const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === 'hand').map(c => c.order));
-    return {
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          cards: player.cards.map(c =>
-            c.instanceId === topCard.instanceId
-              ? { ...c, zone: 'hand' as Zone, faceDown: false, order: maxOrder + 1 }
-              : c
-          )
-        }
-      },
-      log: [...state.log, `${player.name} взял карту`]
-    };
-  }),
-
-  moveCard: (cardInstanceId, toZone, faceDown) => set(state => {
-    const found = findCard(state.players, cardInstanceId);
-    if (!found) return state;
-    const { card, playerId } = found;
-    const player = state.players[playerId];
-    const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
-
-    // If card was sealed, remove it from the crystal
-    let crystals = player.crystals;
-    if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
-      crystals = crystals.map((cr, i) =>
-        i === card.sealedUnderCrystal
-          ? { ...cr, sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId) }
-          : cr
-      );
-    }
-
-    return {
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          crystals,
-          cards: player.cards.map(c =>
-            c.instanceId === cardInstanceId
-              ? {
-                ...c,
-                zone: toZone,
-                faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
-                order: maxOrder + 1,
-                exhausted: toZone === 'signZone' ? c.exhausted : false,
-                sealedUnderCrystal: undefined
-              }
-              : c
-          )
-        }
-      },
-      log: [...state.log, `${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`]
-    };
-  }),
-
-  moveCardToPlayer: (cardInstanceId, toPlayerId, toZone) => set(state => {
-    const found = findCard(state.players, cardInstanceId);
-    if (!found) return state;
-    const { card, playerId: fromPlayerId } = found;
-    if (fromPlayerId === toPlayerId) {
-      // Same player, just move zone
-      return get().moveCard(cardInstanceId, toZone) as any || state;
-    }
-
-    const fromPlayer = state.players[fromPlayerId];
-    const toPlayer = state.players[toPlayerId];
-    if (!fromPlayer || !toPlayer) return state;
-
-    // Remove from source
-    let fromCrystals = fromPlayer.crystals;
-    if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
-      fromCrystals = fromCrystals.map((cr, i) =>
-        i === card.sealedUnderCrystal
-          ? { ...cr, sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId) }
-          : cr
-      );
-    }
-
-    const maxOrder = Math.max(0, ...toPlayer.cards.filter(c => c.zone === toZone).map(c => c.order));
-    const movedCard: CardInstance = {
-      ...card,
-      zone: toZone,
-      controllerId: toPlayerId,
-      faceDown: toZone === 'mainDeck' || toZone === 'signDeck',
-      order: maxOrder + 1,
-      exhausted: false,
-      sealedUnderCrystal: undefined
-    };
-
-    return {
-      players: {
-        ...state.players,
-        [fromPlayerId]: {
-          ...fromPlayer,
-          crystals: fromCrystals,
-          cards: fromPlayer.cards.filter(c => c.instanceId !== cardInstanceId)
+  drawCard: (playerId) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const deckCards = player.cards.filter(c => c.zone === 'mainDeck').sort((a, b) => a.order - b.order);
+      if (deckCards.length === 0) return state;
+      const topCard = deckCards[0];
+      const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === 'hand').map(c => c.order));
+      return {
+        players: {
+          ...state.players,
+          [playerId]: {
+            ...player,
+            cards: player.cards.map(c =>
+              c.instanceId === topCard.instanceId
+                ? { ...c, zone: 'hand' as Zone, faceDown: false, order: maxOrder + 1 }
+                : c
+            )
+          }
         },
-        [toPlayerId]: {
-          ...toPlayer,
-          cards: [...toPlayer.cards, movedCard]
-        }
-      },
-      log: [...state.log, `${card.template.name || 'Карта'}: контроль → ${toPlayer.name}`]
-    };
-  }),
+        log: [...state.log, `${player.name} взял карту`]
+      };
+    });
+    if (!get().isRemoteAction) {
+      const onSend = get().onSendAction;
+      if (onSend) onSend({ type: 'action', data: { type: 'drawCard', payload: { playerId } } });
+    }
+  },
+
+  moveCard: (cardInstanceId, toZone, faceDown) => {
+    set(state => {
+      const found = findCard(state.players, cardInstanceId);
+      if (!found) return state;
+      const { card, playerId } = found;
+      const player = state.players[playerId];
+      const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
+
+      let crystals = player.crystals;
+      if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
+        crystals = crystals.map((cr, i) =>
+          i === card.sealedUnderCrystal
+            ? { ...cr, sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId) }
+            : cr
+        );
+      }
+
+      return {
+        players: {
+          ...state.players,
+          [playerId]: {
+            ...player,
+            crystals,
+            cards: player.cards.map(c =>
+              c.instanceId === cardInstanceId
+                ? {
+                  ...c,
+                  zone: toZone,
+                  faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
+                  order: maxOrder + 1,
+                  exhausted: toZone === 'signZone' ? c.exhausted : false,
+                  sealedUnderCrystal: undefined
+                }
+                : c
+            )
+          }
+        },
+        log: [...state.log, `${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`]
+      };
+    });
+    if (!get().isRemoteAction) {
+      const onSend = get().onSendAction;
+      if (onSend) onSend({ type: 'action', data: { type: 'moveCard', payload: { cardInstanceId, toZone, faceDown } } });
+    }
+  },
+
+  moveCardToPlayer: (cardInstanceId, toPlayerId, toZone) => {
+    set(state => {
+      const found = findCard(state.players, cardInstanceId);
+      if (!found) return state;
+      const { card, playerId: fromPlayerId } = found;
+      if (fromPlayerId === toPlayerId) {
+        return get().moveCard(cardInstanceId, toZone) as any || state;
+      }
+
+      const fromPlayer = state.players[fromPlayerId];
+      const toPlayer = state.players[toPlayerId];
+      if (!fromPlayer || !toPlayer) return state;
+
+      let fromCrystals = fromPlayer.crystals;
+      if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
+        fromCrystals = fromCrystals.map((cr, i) =>
+          i === card.sealedUnderCrystal
+            ? { ...cr, sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId) }
+            : cr
+        );
+      }
+
+      const maxOrder = Math.max(0, ...toPlayer.cards.filter(c => c.zone === toZone).map(c => c.order));
+      const movedCard: CardInstance = {
+        ...card,
+        zone: toZone,
+        controllerId: toPlayerId,
+        faceDown: toZone === 'mainDeck' || toZone === 'signDeck',
+        order: maxOrder + 1,
+        exhausted: false,
+        sealedUnderCrystal: undefined
+      };
+
+      return {
+        players: {
+          ...state.players,
+          [fromPlayerId]: {
+            ...fromPlayer,
+            crystals: fromCrystals,
+            cards: fromPlayer.cards.filter(c => c.instanceId !== cardInstanceId)
+          },
+          [toPlayerId]: {
+            ...toPlayer,
+            cards: [...toPlayer.cards, movedCard]
+          }
+        },
+        log: [...state.log, `${card.template.name || 'Карта'}: контроль → ${toPlayer.name}`]
+      };
+    });
+    if (!get().isRemoteAction) {
+      const onSend = get().onSendAction;
+      if (onSend) onSend({ type: 'action', data: { type: 'moveCardToPlayer', payload: { cardInstanceId, toPlayerId, toZone } } });
+    }
+  },
 
   changePosition: (cardInstanceId, position) => set(state => ({
     players: updateCard(state.players, cardInstanceId, c => ({ ...c, position })),
@@ -599,27 +624,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearChain: () => set({ chain: [], chainActive: false }),
 
-  setPhase: (phase) => set(state => ({
-    phase,
-    log: [...state.log, `Фаза: ${phase === 'start' ? 'Начало хода' : phase === 'action' ? 'Фаза Действий' : 'Конец хода'}`]
-  })),
+  setPhase: (phase) => {
+    set(state => ({
+      phase,
+      log: [...state.log, `Фаза: ${phase === 'start' ? 'Начало хода' : phase === 'action' ? 'Фаза Действий' : 'Конец хода'}`]
+    }));
+    if (!get().isRemoteAction) {
+      const onSend = get().onSendAction;
+      if (onSend) onSend({ type: 'action', data: { type: 'setPhase', payload: { phase } } });
+    }
+  },
 
-  nextTurn: () => set(state => {
-    const playerIds = Object.keys(state.players);
-    const currentIdx = playerIds.indexOf(state.currentTurnPlayerId);
-    const nextIdx = (currentIdx + 1) % playerIds.length;
-    const nextPlayerId = playerIds[nextIdx];
-    return {
-      currentTurnPlayerId: nextPlayerId,
-      priorityPlayerId: nextPlayerId,
-      phase: 'start' as const,
-      turnNumber: state.turnNumber + 1,
-      firstTurn: false,
-      chain: [],
-      chainActive: false,
-      log: [...state.log, `--- Ход ${state.turnNumber + 1}: ${state.players[nextPlayerId]?.name || nextPlayerId} ---`]
-    };
-  }),
+  nextTurn: () => {
+    set(state => {
+      const playerIds = Object.keys(state.players);
+      const currentIdx = playerIds.indexOf(state.currentTurnPlayerId);
+      const nextIdx = (currentIdx + 1) % playerIds.length;
+      const nextPlayerId = playerIds[nextIdx];
+      return {
+        currentTurnPlayerId: nextPlayerId,
+        priorityPlayerId: nextPlayerId,
+        phase: 'start' as const,
+        turnNumber: state.turnNumber + 1,
+        firstTurn: false,
+        chain: [],
+        chainActive: false,
+        log: [...state.log, `--- Ход ${state.turnNumber + 1}: ${state.players[nextPlayerId]?.name || nextPlayerId} ---`]
+      };
+    });
+    if (!get().isRemoteAction) {
+      const onSend = get().onSendAction;
+      if (onSend) onSend({ type: 'action', data: { type: 'nextTurn', payload: {} } });
+    }
+  },
 
   passPriority: () => set(state => {
     const playerIds = Object.keys(state.players);

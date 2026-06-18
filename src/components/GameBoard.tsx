@@ -76,7 +76,7 @@ export const GameBoard: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
                   {players[opponentId]?.name || 'Оппонент'}
                 </div>
-                <SidePanel playerId={opponentId} isOpponent={false} />
+                <SidePanel playerId={opponentId} isOpponent={true} />
               </div>
             )}
             <div>
@@ -99,9 +99,9 @@ export const GameBoard: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
                   {players[opponentId]?.name || 'Оппонент'}
                 </span>
-                <LifeCrystals playerId={opponentId} isOpponent={false} />
+                <LifeCrystals playerId={opponentId} isOpponent={true} />
               </div>
-              <Hand playerId={opponentId} isOpponent={false} />
+              <Hand playerId={opponentId} isOpponent={true} />
             </div>
           )}
 
@@ -109,7 +109,7 @@ export const GameBoard: React.FC = () => {
           <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1 min-h-0">
             {opponentId && (
               <div className="pb-1">
-                <PlayerField playerId={opponentId} isOpponent={false} />
+                <PlayerField playerId={opponentId} isOpponent={true} />
               </div>
             )}
 

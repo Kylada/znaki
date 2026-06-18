@@ -93,3 +93,8 @@ export interface PeerMessage {
   type: 'state-sync' | 'action' | 'chat' | 'deck-import' | 'ready';
   data: any;
 }
+
+export interface GameAction {
+  type: string;
+  payload: any;
+}
