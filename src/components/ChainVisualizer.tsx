@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 
 export const ChainVisualizer: React.FC = () => {
-  const { chain, chainActive, addChainLink, resolveLastLink, resolveChain, clearChain, localPlayerId, players } = useGameStore();
+  const { 
+    chain, chainActive, addChainLink, resolveLastLink, resolveChain, clearChain, 
+    localPlayerId, players, resolutionPending, confirmResolution 
+  } = useGameStore();
   const [showAddLink, setShowAddLink] = useState(false);
   const [linkDesc, setLinkDesc] = useState('');
   const [linkCardName, setLinkCardName] = useState('');
@@ -40,20 +43,32 @@ export const ChainVisualizer: React.FC = () => {
       {/* Action buttons */}
       {chain.length > 0 && (
         <div className="flex gap-1 mb-2">
-          <button
-            className="flex-1 bg-amber-700 hover:bg-amber-600 text-white text-xs px-2 py-1.5 rounded font-bold"
-            onClick={resolveLastLink}
-            disabled={unresolvedCount === 0}
-          >
-            ✓ Разрешить последнее
-          </button>
-          <button
-            className="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs px-2 py-1.5 rounded font-bold"
-            onClick={resolveChain}
-            disabled={unresolvedCount === 0}
-          >
-            ✓✓ Разрешить всё
-          </button>
+          {!resolutionPending ? (
+            <>
+              <button
+                className="flex-1 bg-amber-700 hover:bg-amber-600 text-white text-xs px-2 py-1.5 rounded font-bold"
+                onClick={resolveLastLink}
+                disabled={unresolvedCount === 0}
+              >
+                ✓ Разрешить последнее
+              </button>
+              <button
+                className="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs px-2 py-1.5 rounded font-bold"
+                onClick={resolveChain}
+                disabled={unresolvedCount === 0}
+              >
+                ✓✓ Разрешить всё
+              </button>
+            </>
+          ) : (
+            <button
+              className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-xs px-2 py-1.5 rounded font-bold animate-pulse"
+              onClick={() => confirmResolution(localPlayerId)}
+              disabled={resolutionPending.confirmedBy.includes(localPlayerId)}
+            >
+              {resolutionPending.confirmedBy.includes(localPlayerId) ? '✅ Подтверждено' : 'Подтвердить разрешение'}
+            </button>
+          )}
           <button
             className="bg-red-700 hover:bg-red-600 text-white text-xs px-2 py-1.5 rounded"
             onClick={clearChain}

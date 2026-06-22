@@ -15,7 +15,7 @@ const ZoneSlot: React.FC<{
   isOpponent: boolean;
   onDropCard?: (cardId: string, fromZone: string) => void;
 }> = ({ zone, playerId, label, isOpponent, onDropCard }) => {
-  const { players, openContextMenu } = useGameStore();
+  const { players, openContextMenu, combatState, setCombatAttacker, setCombatTarget, setCombatDefender } = useGameStore();
   const player = players[playerId];
   if (!player) return null;
 
@@ -42,6 +42,18 @@ const ZoneSlot: React.FC<{
     }
   };
 
+  const handleCardClick = (cardId: string) => {
+    if (combatState.mode === 'attacking') {
+      if (!combatState.attackerId) {
+        setCombatAttacker(cardId);
+      } else if (combatState.attackerId !== cardId) {
+        setCombatTarget(cardId);
+      }
+    } else if (combatState.mode === 'defending') {
+      setCombatDefender(cardId);
+    }
+  };
+
   // Check if any cards are in defense position for extra padding
   const hasDefense = zone === 'monsterZone' && cards.some(c => c.position === 'defense');
 
@@ -55,22 +67,42 @@ const ZoneSlot: React.FC<{
     >
       <div className="text-[9px] text-gray-500 mb-1 text-center uppercase tracking-wider">{label} ({cards.length}/6)</div>
       <div className="flex flex-wrap gap-3 justify-center items-center" style={{ minHeight: hasDefense ? 135 : 130 }}>
-        {cards.map(card => (
-          <div
-            key={card.instanceId}
-            className={card.position === 'defense' ? 'mx-3 my-2' : ''}
-          >
-            <Card
-              card={card}
-              isOpponent={isOpponent}
-              draggable={!isOpponent}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                openContextMenu(card.instanceId, e.clientX, e.clientY);
-              }}
-            />
-          </div>
-        ))}
+        {cards.map(card => {
+          const isAttacker = combatState.attackerId === card.instanceId;
+          const isTarget = combatState.targetId === card.instanceId;
+          const isDefender = combatState.defenderId === card.instanceId;
+
+          return (
+            <div
+              key={card.instanceId}
+              className={`relative transition-all ${card.position === 'defense' ? 'mx-3 my-2' : ''} 
+                ${isAttacker ? 'ring-4 ring-red-500 scale-105 z-10' : ''} 
+                ${isTarget ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}
+                ${isDefender ? 'ring-4 ring-blue-500 scale-105 z-10' : ''}
+              `}
+              onClick={() => handleCardClick(card.instanceId)}
+            >
+              <Card
+                card={card}
+                isOpponent={isOpponent}
+                draggable={!isOpponent}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openContextMenu(card.instanceId, e.clientX, e.clientY);
+                }}
+              />
+              {isAttacker && (
+                <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[10px] px-1 rounded font-bold">⚔️</div>
+              )}
+              {isTarget && (
+                <div className="absolute -top-2 -right-2 bg-yellow-600 text-white text-[10px] px-1 rounded font-bold">🎯</div>
+              )}
+              {isDefender && (
+                <div className="absolute -top-2 -left-2 bg-blue-600 text-white text-[10px] px-1 rounded font-bold">🛡</div>
+              )}
+            </div>
+          );
+        })}
         {cards.length === 0 && (
           <div className="w-[90px] h-[130px] border border-dashed border-gray-700/50 rounded-lg flex items-center justify-center text-gray-700 text-xs">
             Пусто

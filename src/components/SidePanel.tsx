@@ -12,14 +12,32 @@ interface ZoneViewerProps {
 
 const ZoneViewer: React.FC<ZoneViewerProps> = ({ playerId, zone, label, isOpponent }) => {
   const [open, setOpen] = useState(false);
-  const { players, openContextMenu } = useGameStore();
+  const { players, openContextMenu, moveCard } = useGameStore();
   const player = players[playerId];
   if (!player) return null;
 
   const cards = player.cards.filter(c => c.zone === zone).sort((a, b) => a.order - b.order);
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.currentTarget.classList.add('ring-2', 'ring-cyan-500/50');
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.currentTarget.classList.remove('ring-2', 'ring-cyan-500/50');
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('ring-2', 'ring-cyan-500/50');
+    const cardId = e.dataTransfer.getData('cardInstanceId');
+    if (cardId) {
+      moveCard(cardId, zone);
+    }
+  };
+
   return (
-    <div className="border border-gray-700 rounded-lg overflow-hidden">
+    <div className="border border-gray-700 rounded-lg overflow-hidden" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       <button
         className="w-full text-left px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm flex justify-between items-center"
         onClick={() => setOpen(!open)}

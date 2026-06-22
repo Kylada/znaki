@@ -20,12 +20,28 @@ interface GameStore extends GameState {
   onSendAction: ((action: any) => void) | null;
   isRemoteAction: boolean;
   gameStatus: 'playing' | 'conceded' | 'tie-proposed' | 'ended';
+  combatState: {
+    mode: 'idle' | 'attacking' | 'defending';
+    attackerId: string | null;
+    targetId: string | null;
+    defenderId: string | null;
+  };
+  resolutionPending: {
+    type: 'link' | 'all';
+    confirmedBy: string[];
+  } | null;
 
   setLocalPlayerId: (id: string) => void;
   setRemotePlayerId: (id: string | null) => void;
   setOnSendAction: (fn: ((action: any) => void) | null) => void;
   setRemoteAction: (val: boolean) => void;
   setGameStatus: (status: GameStore['gameStatus']) => void;
+  setCombatMode: (mode: GameStore['combatState']['mode']) => void;
+  setCombatAttacker: (id: string | null) => void;
+  setCombatTarget: (id: string | null) => void;
+  setCombatDefender: (id: string | null) => void;
+  clearCombatState: () => void;
+  confirmResolution: (playerId: string) => void;
 
   initPlayer: (id: string, name: string) => void;
   importCardTemplates: (templates: CardTemplate[]) => void;
@@ -160,6 +176,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   onSendAction: null,
   isRemoteAction: false,
   gameStatus: 'playing',
+  combatState: {
+    mode: 'idle',
+    attackerId: null,
+    targetId: null,
+    defenderId: null,
+  },
+  resolutionPending: null,
 
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
@@ -167,6 +190,61 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setRemoteAction: (val) => set({ isRemoteAction: val }),
   setGameStatus: (status) => {
     set({ gameStatus: status });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  setCombatMode: (mode) => {
+    set({ combatState: { ...get().combatState, mode } });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  setCombatAttacker: (id) => {
+    set({ combatState: { ...get().combatState, attackerId: id } });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  setCombatTarget: (id) => {
+    set({ combatState: { ...get().combatState, targetId: id } });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  setCombatDefender: (id) => {
+    set({ combatState: { ...get().combatState, defenderId: id } });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  clearCombatState: () => {
+    set({ combatState: { mode: 'idle', attackerId: null, targetId: null, defenderId: null } });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  confirmResolution: (playerId) => {
+    set(state => {
+      if (!state.resolutionPending) return state;
+      const confirmedBy = [...(state.resolutionPending.confirmedBy || []), playerId];
+      const uniqueConfirmed = Array.from(new Set(confirmedBy));
+      
+      if (uniqueConfirmed.length >= 2) {
+        // Both players confirmed! Resolve the chain.
+        let { chain, log } = state;
+        if (state.resolutionPending.type === 'link') {
+          const lastUnresolved = [...chain].reverse().find(l => !l.resolved);
+          if (lastUnresolved) {
+            chain = chain.map(l =>
+              l.linkNumber === lastUnresolved.linkNumber ? { ...l, resolved: true } : l
+            );
+            log = [...log, `✓ Разрешено Звено ${lastUnresolved.linkNumber}: ${lastUnresolved.description}`];
+          }
+        } else {
+          const descriptions = [...chain].reverse().map(l => `  ${l.linkNumber}. ${l.description}`).join('\n');
+          chain = [];
+          log = [...log, `✓ Цепь разрешена (${state.chain.length} звеньев):\n${descriptions}`];
+        }
+        
+        const allResolved = chain.every(l => l.resolved);
+        return {
+          resolutionPending: null,
+          chain: allResolved ? [] : chain,
+          chainActive: !allResolved,
+          log: log
+        };
+      }
+      return { resolutionPending: { ...state.resolutionPending, confirmedBy: uniqueConfirmed } };
+    });
     if (!get().isRemoteAction) get().syncBoardState();
   },
 
@@ -451,10 +529,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const player = state.players[playerId];
       if (!player || !player.crystals[crystalIndex]) return state;
       const crystal = player.crystals[crystalIndex];
-      const crystals = [...player.crystals];
-      crystals[crystalIndex] = { ...crystals[crystalIndex], currentHealth: 0, destroyed: true, sealedCardIds: [] };
+
       let cards = player.cards;
       const logEntries = [`${player.name}: Кристалл ${crystalIndex + 1} уничтожен!`];
+      
       if (crystal.sealedCardIds.length > 0) {
         let maxOrder = Math.max(0, ...cards.filter(c => c.zone === 'hand').map(c => c.order));
         cards = cards.map(c => {
@@ -466,8 +544,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
           return c;
         });
       }
+
+      const crystals = player.crystals.filter((_, i) => i !== crystalIndex);
+      const updatedCards = cards.map(c => {
+        if (c.sealedUnderCrystal !== undefined && c.sealedUnderCrystal > crystalIndex) {
+          return { ...c, sealedUnderCrystal: c.sealedUnderCrystal - 1 };
+        }
+        return c;
+      });
+
       return {
-        players: { ...state.players, [playerId]: { ...player, crystals, cards } },
+        players: { ...state.players, [playerId]: { ...player, crystals, cards: updatedCards } },
         log: [...state.log, ...logEntries]
       };
     });
@@ -660,38 +747,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
-  addChainLink: (link) => set(state => ({
-    chain: [...state.chain, { ...link, linkNumber: state.chain.length + 1, resolved: false }],
-    chainActive: true,
-    log: [...state.log, `⛓ Звено ${state.chain.length + 1}: ${link.description}`]
-  })),
+  addChainLink: (link) => {
+    set(state => ({
+      chain: [...state.chain, { ...link, linkNumber: state.chain.length + 1, resolved: false }],
+      chainActive: true,
+      log: [...state.log, `⛓ Звено ${state.chain.length + 1}: ${link.description}`]
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  resolveLastLink: () => set(state => {
-    if (state.chain.length === 0) return state;
-    const lastUnresolved = [...state.chain].reverse().find(l => !l.resolved);
-    if (!lastUnresolved) return { chain: [], chainActive: false };
-    const newChain = state.chain.map(l =>
-      l.linkNumber === lastUnresolved.linkNumber ? { ...l, resolved: true } : l
-    );
-    const allResolved = newChain.every(l => l.resolved);
-    return {
-      chain: allResolved ? [] : newChain,
-      chainActive: !allResolved,
-      log: [...state.log, `✓ Разрешено Звено ${lastUnresolved.linkNumber}: ${lastUnresolved.description}`]
-    };
-  }),
+  resolveLastLink: () => {
+    set(state => {
+      if (state.chain.length === 0) return state;
+      return {
+        resolutionPending: { type: 'link', confirmedBy: [] }
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  resolveChain: () => set(state => {
-    if (state.chain.length === 0) return state;
-    const descriptions = [...state.chain].reverse().map(l => `  ${l.linkNumber}. ${l.description}`).join('\n');
-    return {
-      chain: [],
-      chainActive: false,
-      log: [...state.log, `✓ Цепь разрешена (${state.chain.length} звеньев):\n${descriptions}`]
-    };
-  }),
+  resolveChain: () => {
+    set(state => {
+      if (state.chain.length === 0) return state;
+      return {
+        resolutionPending: { type: 'all', confirmedBy: [] }
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  clearChain: () => set({ chain: [], chainActive: false }),
+  clearChain: () => {
+    set({ chain: [], chainActive: false });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
   setPhase: (phase) => {
     set(state => ({
@@ -864,23 +952,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return undefined;
   },
 
-  activateEffect: (cardInstanceId) => set(state => {
-    const found = findCard(state.players, cardInstanceId);
-    if (!found) return state;
-    const name = found.card.template.name || 'Карта';
-    return {
-      chain: [...state.chain, {
-        linkNumber: state.chain.length + 1,
-        cardInstanceId,
-        cardName: name,
-        description: `Эффект: ${name}`,
-        playerId: found.playerId,
-        resolved: false
-      }],
-      chainActive: true,
-      log: [...state.log, `⚡ Активирован эффект: ${name} (Звено ${state.chain.length + 1})`]
-    };
-  }),
+  activateEffect: (cardInstanceId) => {
+    set(state => {
+      const found = findCard(state.players, cardInstanceId);
+      if (!found) return state;
+      const name = found.card.template.name || 'Карта';
+      return {
+        chain: [...state.chain, {
+          linkNumber: state.chain.length + 1,
+          cardInstanceId,
+          cardName: name,
+          description: `Эффект: ${name}`,
+          playerId: found.playerId,
+          resolved: false
+        }],
+        chainActive: true,
+        log: [...state.log, `⚡ Активирован эффект: ${name} (Звено ${state.chain.length + 1})`]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
   syncBoardState: () => {
     const state = get();

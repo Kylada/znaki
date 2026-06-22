@@ -4,7 +4,8 @@ import { useGameStore } from '../store/gameStore';
 export const TurnControls: React.FC = () => {
   const {
     currentTurnPlayerId, phase, turnNumber, players,
-    setPhase, nextTurn, localPlayerId
+    setPhase, nextTurn, localPlayerId,
+    setCombatMode, clearCombatState, combatState
   } = useGameStore();
 
   const currentPlayerName = players[currentTurnPlayerId]?.name || '?';
@@ -47,6 +48,40 @@ export const TurnControls: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* Combat controls */}
+      {isMyTurn && phase === 'action' && (
+        <div className="flex gap-1 border-l border-gray-700 pl-3">
+          <button
+            className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
+              combatState.mode === 'attacking'
+                ? 'bg-red-600 text-white ring-2 ring-white'
+                : 'bg-red-900/50 text-red-200 hover:bg-red-800'
+            }`}
+            onClick={() => setCombatMode('attacking')}
+          >
+            ⚔️ Атака
+          </button>
+          <button
+            className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
+              combatState.mode === 'defending'
+                ? 'bg-blue-600 text-white ring-2 ring-white'
+                : 'bg-blue-900/50 text-blue-200 hover:bg-blue-800'
+            }`}
+            onClick={() => setCombatMode('defending')}
+          >
+            🛡 Защита
+          </button>
+          {combatState.mode !== 'idle' && (
+            <button
+              className="px-2 py-1 rounded text-xs font-bold bg-gray-700 text-gray-300 hover:bg-gray-600"
+              onClick={clearCombatState}
+            >
+              Отмена
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Next turn */}
       <button

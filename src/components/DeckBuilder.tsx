@@ -45,6 +45,9 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
   };
 
   const handleLoadDeck = () => {
+    if (!window.confirm('Загрузка новой колоды заменит текущую и сбросит состояние поля. Продолжить?')) {
+      return;
+    }
     // Use clearAll=true for the first load to wipe previous deck and board
     loadDeck(playerId, mainDeck, false, true);
     loadDeck(playerId, signDeck, true, false);
