@@ -94,7 +94,7 @@ export const PlayerField: React.FC<PlayerFieldProps> = ({ playerId, isOpponent }
 
   if (isOpponent) {
     return (
-      <div className="space-y-1 flex flex-col-reverse">
+      <div className="space-y-1">
         <ZoneSlot zone="signZone" playerId={playerId} label="Знаки" isOpponent={isOpponent} />
         <ZoneSlot zone="spellArtifactZone" playerId={playerId} label="Заклятья / Артефакты" isOpponent={isOpponent} />
         <ZoneSlot zone="monsterZone" playerId={playerId} label="Монстры" isOpponent={isOpponent} />

@@ -293,8 +293,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
     if (!get().isRemoteAction) {
-      const onSend = get().onSendAction;
-      if (onSend) onSend({ type: 'action', data: { type: 'shuffleDeck', payload: { playerId, isSignDeck } } });
+      get().syncBoardState();
     }
   },
 
@@ -325,8 +324,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
     if (!get().isRemoteAction) {
-      const onSend = get().onSendAction;
-      if (onSend) onSend({ type: 'action', data: { type: 'drawCard', payload: { playerId } } });
+      get().syncBoardState();
     }
   },
 
@@ -372,8 +370,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
     if (!get().isRemoteAction) {
-      const onSend = get().onSendAction;
-      if (onSend) onSend({ type: 'action', data: { type: 'moveCard', payload: { cardInstanceId, toZone, faceDown } } });
+      get().syncBoardState();
     }
   },
 
@@ -427,8 +424,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
     if (!get().isRemoteAction) {
-      const onSend = get().onSendAction;
-      if (onSend) onSend({ type: 'action', data: { type: 'moveCardToPlayer', payload: { cardInstanceId, toPlayerId, toZone } } });
+      get().syncBoardState();
     }
   },
 
@@ -707,8 +703,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       log: [...state.log, `Фаза: ${phase === 'start' ? 'Начало хода' : phase === 'action' ? 'Фаза Действий' : 'Конец хода'}`]
     }));
     if (!get().isRemoteAction) {
-      const onSend = get().onSendAction;
-      if (onSend) onSend({ type: 'action', data: { type: 'setPhase', payload: { phase } } });
+      get().syncBoardState();
     }
   },
 
@@ -730,8 +725,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
     if (!get().isRemoteAction) {
-      const onSend = get().onSendAction;
-      if (onSend) onSend({ type: 'action', data: { type: 'nextTurn', payload: {} } });
+      get().syncBoardState();
     }
   },
 
