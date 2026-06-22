@@ -7,8 +7,6 @@ import type {
 
 /**
  * GameStore Interface
- * This defines the global state and all the available actions.
- * Zustand uses this to ensure that we only call functions that actually exist.
  */
 interface GameStore extends GameState {
   localPlayerId: string;
@@ -21,16 +19,18 @@ interface GameStore extends GameState {
   chatMessages: { sender: string; text: string }[];
   onSendAction: ((action: any) => void) | null;
   isRemoteAction: boolean;
+  gameStatus: 'playing' | 'conceded' | 'tie-proposed' | 'ended';
 
   setLocalPlayerId: (id: string) => void;
   setRemotePlayerId: (id: string | null) => void;
   setOnSendAction: (fn: ((action: any) => void) | null) => void;
   setRemoteAction: (val: boolean) => void;
+  setGameStatus: (status: GameStore['gameStatus']) => void;
 
   initPlayer: (id: string, name: string) => void;
   importCardTemplates: (templates: CardTemplate[]) => void;
 
-  loadDeck: (playerId: string, templateIds: string[], isSignDeck: boolean) => void;
+  loadDeck: (playerId: string, templateIds: string[], isSignDeck: boolean, clearAll?: boolean) => void;
   shuffleDeck: (playerId: string, isSignDeck: boolean) => void;
 
   drawCard: (playerId: string) => void;
@@ -93,18 +93,12 @@ interface GameStore extends GameState {
   executeAction: (actionType: string, payload: any) => void;
   concede: (playerId: string) => void;
   proposeTie: (playerId: string) => void;
+  resetGame: () => void;
   
-  // NEW: Robust Sync methods
   syncBoardState: () => void;
   applyBoardState: (state: any) => void;
 }
 
-/**
- * HELPER FUNCTIONS
- * These functions simplify data manipulation within the store.
- */
-
-// Searches for a card across all players' collections using its unique instanceId.
 function findCard(players: Record<string, PlayerState>, instanceId: string): { card: CardInstance; playerId: string } | null {
   for (const [pid, p] of Object.entries(players)) {
     const c = p.cards.find(c => c.instanceId === instanceId);
@@ -113,7 +107,6 @@ function findCard(players: Record<string, PlayerState>, instanceId: string): { c
   return null;
 }
 
-// Finds a card and applies a change to it (the 'updater' function).
 function updateCard(players: Record<string, PlayerState>, instanceId: string, updater: (c: CardInstance) => CardInstance): Record<string, PlayerState> {
   const newPlayers = { ...players };
   for (const pid of Object.keys(newPlayers)) {
@@ -129,7 +122,6 @@ function updateCard(players: Record<string, PlayerState>, instanceId: string, up
   return newPlayers;
 }
 
-// Generates the standard set of 6 life crystals for a new player.
 const initialCrystals = (): LifeCrystal[] =>
   Array.from({ length: 6 }, () => ({
     currentHealth: 6,
@@ -138,7 +130,6 @@ const initialCrystals = (): LifeCrystal[] =>
     destroyed: false
   }));
 
-// Converts a Zone enum value to a human-readable Russian label for the log.
 const zoneLabel = (z: Zone) => {
   const names: Record<Zone, string> = {
     hand: 'Руку', monsterZone: 'Зону Монстров', spellArtifactZone: 'Зону Заклятий',
@@ -148,12 +139,7 @@ const zoneLabel = (z: Zone) => {
   return names[z] || z;
 };
 
-/**
- * THE MAIN STORE
- * This is where the entire game state lives.
- */
 export const useGameStore = create<GameStore>((set, get) => ({
-  // INITIAL STATE
   players: {},
   currentTurnPlayerId: '',
   phase: 'start',
@@ -173,33 +159,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
   chatMessages: [],
   onSendAction: null,
   isRemoteAction: false,
+  gameStatus: 'playing',
 
-  // BASIC SETTERS
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
   setOnSendAction: (fn) => set({ onSendAction: fn }),
   setRemoteAction: (val) => set({ isRemoteAction: val }),
+  setGameStatus: (status) => {
+    set({ gameStatus: status });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  /**
-   * SYNC ENGINE
-   * executeAction is the core of the multiplayer system.
-   * It runs an action locally AND sends it to the opponent, unless the action 
-   * was already received from the network (isRemoteAction = true).
-   */
   executeAction: (type, payload) => {
     const onSend = get().onSendAction;
     const isRemote = get().isRemoteAction;
-
-    // Mark as remote so the action function doesn't try to send it back to the sender
     setRemoteAction(true);
     if (typeof get()[type] === 'function' && type !== 'executeAction') {
-      // Extract values from payload object to pass as positional arguments to the function
       const args = payload && typeof payload === 'object' ? Object.values(payload) : [payload];
       (get()[type] as any)(...args);
     }
     setRemoteAction(false);
-
-    // If this action was triggered by a local user, sync the full board state
     if (!isRemote) {
       get().syncBoardState();
     }
@@ -208,16 +187,45 @@ export const useGameStore = create<GameStore>((set, get) => ({
   concede: (playerId) => {
     const player = get().players[playerId];
     const name = player?.name || 'Игрок';
+    set({ gameStatus: 'conceded' });
     get().addLog(`🏳️ ${name} сдался!`);
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
   proposeTie: (playerId) => {
     const player = get().players[playerId];
     const name = player?.name || 'Игрок';
+    set({ gameStatus: 'tie-proposed' });
     get().addLog(`🤝 ${name} предложил ничью`);
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
-  // PLAYER INITIALIZATION
+  resetGame: () => {
+    const { players, localPlayerId, remotePlayerId } = get();
+    const newPlayers = { ...players };
+    for (const pid of Object.keys(newPlayers)) {
+      newPlayers[pid] = {
+        ...newPlayers[pid],
+        cards: [],
+        crystals: initialCrystals(),
+        secondBreathUsed: false
+      };
+    }
+    set({
+      players: newPlayers,
+      currentTurnPlayerId: localPlayerId,
+      priorityPlayerId: localPlayerId,
+      phase: 'start',
+      turnNumber: 1,
+      chain: [],
+      chainActive: false,
+      firstTurn: true,
+      log: ['Игра сброшена и начата заново'],
+      gameStatus: 'playing'
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
   initPlayer: (id, name) => set(state => ({
     players: {
       ...state.players,
@@ -237,14 +245,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
     cardTemplates: [...state.cardTemplates, ...templates.filter(t => !state.cardTemplates.find(e => e.id === t.id))]
   })),
 
-  // DECK MANAGEMENT
-  loadDeck: (playerId, templateIds, isSignDeck) => set(state => {
+  loadDeck: (playerId, templateIds, isSignDeck, clearAll = false) => set(state => {
     const player = state.players[playerId];
     if (!player) return state;
-    const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
-    const existingOther = player.cards.filter(c => c.zone !== zone);
     
-    // Turn template IDs into unique CardInstances
+    let currentCards = player.cards;
+    if (clearAll) {
+      currentCards = [];
+    } else {
+      const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
+      currentCards = player.cards.filter(c => c.zone !== zone);
+    }
+
+    const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
     const newCards: CardInstance[] = templateIds.map((tid, i) => {
       const tmpl = state.cardTemplates.find(t => t.id === tid);
       if (!tmpl) return null;
@@ -268,7 +281,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }).filter(Boolean) as CardInstance[];
     
     return {
-      players: { ...state.players, [playerId]: { ...player, cards: [...existingOther, ...newCards] } }
+      players: { ...state.players, [playerId]: { ...player, cards: [...currentCards, ...newCards] } }
     };
   }),
 
@@ -279,35 +292,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
       const deckCards = [...player.cards.filter(c => c.zone === zone)];
       const otherCards = player.cards.filter(c => c.zone !== zone);
-      
-      // Fisher-Yates shuffle algorithm
       for (let i = deckCards.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [deckCards[i], deckCards[j]] = [deckCards[j], deckCards[i]];
       }
       deckCards.forEach((c, i) => c.order = i);
-      
       return {
         players: { ...state.players, [playerId]: { ...player, cards: [...otherCards, ...deckCards] } },
         log: [...state.log, `${player.name} перемешал ${isSignDeck ? 'Колоду Знаков' : 'Основную Колоду'}`]
       };
     });
-    if (!get().isRemoteAction) {
-      get().syncBoardState();
-    }
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
   drawCard: (playerId) => {
     set(state => {
       const player = state.players[playerId];
       if (!player) return state;
-      
-      // Find the card with the lowest order index (the top of the deck)
       const deckCards = player.cards.filter(c => c.zone === 'mainDeck').sort((a, b) => a.order - b.order);
       if (deckCards.length === 0) return state;
       const topCard = deckCards[0];
       const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === 'hand').map(c => c.order));
-      
       return {
         players: {
           ...state.players,
@@ -323,9 +328,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         log: [...state.log, `${player.name} взял карту`]
       };
     });
-    if (!get().isRemoteAction) {
-      get().syncBoardState();
-    }
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
   moveCard: (cardInstanceId, toZone, faceDown) => {
@@ -335,8 +338,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const { card, playerId } = found;
       const player = state.players[playerId];
       const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
-
-      // Handle unsealing if the card is moving out of a crystal
       let crystals = player.crystals;
       if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
         crystals = crystals.map((cr, i) =>
@@ -345,7 +346,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             : cr
         );
       }
-
       return {
         players: {
           ...state.players,
@@ -369,9 +369,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         log: [...state.log, `${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`]
       };
     });
-    if (!get().isRemoteAction) {
-      get().syncBoardState();
-    }
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
   moveCardToPlayer: (cardInstanceId, toPlayerId, toZone) => {
@@ -382,11 +380,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (fromPlayerId === toPlayerId) {
         return get().moveCard(cardInstanceId, toZone) as any || state;
       }
-
       const fromPlayer = state.players[fromPlayerId];
       const toPlayer = state.players[toPlayerId];
       if (!fromPlayer || !toPlayer) return state;
-
       let fromCrystals = fromPlayer.crystals;
       if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
         fromCrystals = fromCrystals.map((cr, i) =>
@@ -395,7 +391,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             : cr
         );
       }
-
       const maxOrder = Math.max(0, ...toPlayer.cards.filter(c => c.zone === toZone).map(c => c.order));
       const movedCard: CardInstance = {
         ...card,
@@ -406,7 +401,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         exhausted: false,
         sealedUnderCrystal: undefined
       };
-
       return {
         players: {
           ...state.players,
@@ -423,9 +417,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         log: [...state.log, `${card.template.name || 'Карта'}: контроль → ${toPlayer.name}`]
       };
     });
-    if (!get().isRemoteAction) {
-      get().syncBoardState();
-    }
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
   changePosition: (cardInstanceId, position) => set(state => ({
@@ -440,87 +432,95 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectCard: (cardInstanceId) => set({ selectedCardId: cardInstanceId }),
   hoverCard: (cardInstanceId) => set({ hoveredCardId: cardInstanceId }),
 
-  // LIFE CRYSTAL MANAGEMENT
-  setCrystalHealth: (playerId, crystalIndex, health) => set(state => {
-    const player = state.players[playerId];
-    if (!player || !player.crystals[crystalIndex]) return state;
-    const crystals = [...player.crystals];
-    crystals[crystalIndex] = { ...crystals[crystalIndex], currentHealth: Math.max(0, Math.min(health, 6)) };
-    return {
-      players: { ...state.players, [playerId]: { ...player, crystals } },
-      log: [...state.log, `${player.name}: Кристалл ${crystalIndex + 1} → ${health} HP`]
-    };
-  }),
-
-  destroyCrystal: (playerId, crystalIndex) => set(state => {
-    const player = state.players[playerId];
-    if (!player || !player.crystals[crystalIndex]) return state;
-    const crystal = player.crystals[crystalIndex];
-    const crystals = [...player.crystals];
-    crystals[crystalIndex] = { ...crystals[crystalIndex], currentHealth: 0, destroyed: true, sealedCardIds: [] };
-
-    let cards = player.cards;
-    const logEntries = [`${player.name}: Кристалл ${crystalIndex + 1} уничтожен!`];
-    if (crystal.sealedCardIds.length > 0) {
-      let maxOrder = Math.max(0, ...cards.filter(c => c.zone === 'hand').map(c => c.order));
-      cards = cards.map(c => {
-        if (crystal.sealedCardIds.includes(c.instanceId)) {
-          maxOrder++;
-          logEntries.push(`  📜 Распечатана: ${c.template.name || 'Карта'}`);
-          return { ...c, zone: 'hand' as Zone, faceDown: false, sealedUnderCrystal: undefined, order: maxOrder };
-        }
-        return c;
-      });
-    }
-
-    return {
-      players: { ...state.players, [playerId]: { ...player, crystals, cards } },
-      log: [...state.log, ...logEntries]
-    };
-  }),
-
-  addCrystal: (playerId) => set(state => {
-    const player = state.players[playerId];
-    if (!player) return state;
-    const activeCrystals = player.crystals.filter(c => !c.destroyed).length;
-    if (activeCrystals >= 6) return state;
-    const crystals: LifeCrystal[] = [...player.crystals, { currentHealth: 6, maxHealth: 6, sealedCardIds: [], destroyed: false }];
-    return {
-      players: { ...state.players, [playerId]: { ...player, crystals } },
-      log: [...state.log, `${player.name}: Добавлен Кристалл Жизни`]
-    };
-  }),
-
-  removeCrystal: (playerId, crystalIndex) => set(state => {
-    const player = state.players[playerId];
-    if (!player || !player.crystals[crystalIndex]) return state;
-    const crystal = player.crystals[crystalIndex];
-    let cards = player.cards;
-    if (crystal.sealedCardIds.length > 0) {
-      const maxOrder = Math.max(0, ...cards.filter(c => c.zone === 'hand').map(c => c.order));
-      let ord = maxOrder;
-      cards = cards.map(c => {
-        if (crystal.sealedCardIds.includes(c.instanceId)) {
-          ord++;
-          return { ...c, zone: 'hand' as Zone, faceDown: false, sealedUnderCrystal: undefined, order: ord };
-        }
-        return c;
-      });
-    }
-    const crystals = player.crystals.filter((_, i) => i !== crystalIndex);
-    const updatedCards = cards.map(c => {
-      if (c.sealedUnderCrystal !== undefined && c.sealedUnderCrystal > crystalIndex) {
-        return { ...c, sealedUnderCrystal: c.sealedUnderCrystal - 1 };
-      }
-      return c;
+  setCrystalHealth: (playerId, crystalIndex, health) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player || !player.crystals[crystalIndex]) return state;
+      const crystals = [...player.crystals];
+      crystals[crystalIndex] = { ...crystals[crystalIndex], currentHealth: Math.max(0, Math.min(health, 6)) };
+      return {
+        players: { ...state.players, [playerId]: { ...player, crystals } },
+        log: [...state.log, `${player.name}: Кристалл ${crystalIndex + 1} → ${health} HP`]
+      };
     });
-    return {
-      players: { ...state.players, [playerId]: { ...player, crystals, cards: updatedCards } },
-      log: [...state.log, `${player.name}: Удален Кристалл Жизни ${crystalIndex + 1}`]
-    };
-  }),
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  // COUNTER MANAGEMENT
+  destroyCrystal: (playerId, crystalIndex) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player || !player.crystals[crystalIndex]) return state;
+      const crystal = player.crystals[crystalIndex];
+      const crystals = [...player.crystals];
+      crystals[crystalIndex] = { ...crystals[crystalIndex], currentHealth: 0, destroyed: true, sealedCardIds: [] };
+      let cards = player.cards;
+      const logEntries = [`${player.name}: Кристалл ${crystalIndex + 1} уничтожен!`];
+      if (crystal.sealedCardIds.length > 0) {
+        let maxOrder = Math.max(0, ...cards.filter(c => c.zone === 'hand').map(c => c.order));
+        cards = cards.map(c => {
+          if (crystal.sealedCardIds.includes(c.instanceId)) {
+            maxOrder++;
+            logEntries.push(`  📜 Распечатана: ${c.template.name || 'Карта'}`);
+            return { ...c, zone: 'hand' as Zone, faceDown: false, sealedUnderCrystal: undefined, order: maxOrder };
+          }
+          return c;
+        });
+      }
+      return {
+        players: { ...state.players, [playerId]: { ...player, crystals, cards } },
+        log: [...state.log, ...logEntries]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
+  addCrystal: (playerId) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const activeCrystals = player.crystals.filter(c => !c.destroyed).length;
+      if (activeCrystals >= 6) return state;
+      const crystals: LifeCrystal[] = [...player.crystals, { currentHealth: 6, maxHealth: 6, sealedCardIds: [], destroyed: false }];
+      return {
+        players: { ...state.players, [playerId]: { ...player, crystals } },
+        log: [...state.log, `${player.name}: Добавлен Кристалл Жизни`]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
+  removeCrystal: (playerId, crystalIndex) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player || !player.crystals[crystalIndex]) return state;
+      const crystal = player.crystals[crystalIndex];
+      let cards = player.cards;
+      if (crystal.sealedCardIds.length > 0) {
+        const maxOrder = Math.max(0, ...cards.filter(c => c.zone === 'hand').map(c => c.order));
+        let ord = maxOrder;
+        cards = cards.map(c => {
+          if (crystal.sealedCardIds.includes(c.instanceId)) {
+            ord++;
+            return { ...c, zone: 'hand' as Zone, faceDown: false, sealedUnderCrystal: undefined, order: ord };
+          }
+          return c;
+        });
+      }
+      const crystals = player.crystals.filter((_, i) => i !== crystalIndex);
+      const updatedCards = cards.map(c => {
+        if (c.sealedUnderCrystal !== undefined && c.sealedUnderCrystal > crystalIndex) {
+          return { ...c, sealedUnderCrystal: c.sealedUnderCrystal - 1 };
+        }
+        return c;
+      });
+      return {
+        players: { ...state.players, [playerId]: { ...player, crystals, cards: updatedCards } },
+        log: [...state.log, `${player.name}: Удален Кристалл Жизни ${crystalIndex + 1}`]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
   addCounter: (cardInstanceId, counterName, amount) => set(state => ({
     players: updateCard(state.players, cardInstanceId, c => ({
       ...c,
@@ -547,7 +547,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     })
   })),
 
-  // TOKEN LOGIC
   createToken: (playerId, zone, template) => set(state => {
     const player = state.players[playerId];
     if (!player) return state;
@@ -599,7 +598,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
-  // SIGN LOGIC
   exhaustSign: (cardInstanceId) => set(state => ({
     players: updateCard(state.players, cardInstanceId, c => ({ ...c, exhausted: true })),
     log: [...state.log, `Знак истощён`]
@@ -662,7 +660,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
-  // CHAIN LOGIC
   addChainLink: (link) => set(state => ({
     chain: [...state.chain, { ...link, linkNumber: state.chain.length + 1, resolved: false }],
     chainActive: true,
@@ -696,7 +693,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearChain: () => set({ chain: [], chainActive: false }),
 
-  // TURN MANAGEMENT
   setPhase: (phase) => {
     set(state => ({
       phase,
@@ -736,57 +732,63 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return { priorityPlayerId: playerIds[nextIdx] };
   }),
 
-  sealCard: (cardInstanceId, crystalIndex, playerId) => set(state => {
-    const player = state.players[playerId];
-    if (!player || !player.crystals[crystalIndex] || player.crystals[crystalIndex].destroyed) return state;
-    const crystals = player.crystals.map((cr, i) =>
-      i === crystalIndex
-        ? { ...cr, sealedCardIds: [...cr.sealedCardIds, cardInstanceId] }
-        : cr
-    );
-    return {
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          crystals,
-          cards: player.cards.map(c =>
-            c.instanceId === cardInstanceId
-              ? { ...c, zone: 'sealed' as Zone, faceDown: true, sealedUnderCrystal: crystalIndex }
-              : c
-          )
-        }
-      },
-      log: [...state.log, `Карта запечатана под Кристалл ${crystalIndex + 1}`]
-    };
-  }),
+  sealCard: (cardInstanceId, crystalIndex, playerId) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player || !player.crystals[crystalIndex] || player.crystals[crystalIndex].destroyed) return state;
+      const crystals = player.crystals.map((cr, i) =>
+        i === crystalIndex
+          ? { ...cr, sealedCardIds: [...cr.sealedCardIds, cardInstanceId] }
+          : cr
+      );
+      return {
+        players: {
+          ...state.players,
+          [playerId]: {
+            ...player,
+            crystals,
+            cards: player.cards.map(c =>
+              c.instanceId === cardInstanceId
+                ? { ...c, zone: 'sealed' as Zone, faceDown: true, sealedUnderCrystal: crystalIndex }
+                : c
+            )
+          }
+        },
+        log: [...state.log, `Карта запечатана под Кристалл ${crystalIndex + 1}`]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  unsealCard: (cardInstanceId) => set(state => {
-    const found = findCard(state.players, cardInstanceId);
-    if (!found) return state;
-    const { card, playerId } = found;
-    const player = state.players[playerId];
-    const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === 'hand').map(c => c.order));
-    const crystals = player.crystals.map(cr => ({
-      ...cr,
-      sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId)
-    }));
-    return {
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          crystals,
-          cards: player.cards.map(c =>
-            c.instanceId === cardInstanceId
-              ? { ...c, zone: 'hand' as Zone, faceDown: false, sealedUnderCrystal: undefined, order: maxOrder + 1 }
-              : c
-          )
-        }
-      },
-      log: [...state.log, `Карта распечатана: ${card.template.name || 'Карта'}`]
-    };
-  }),
+  unsealCard: (cardInstanceId) => {
+    set(state => {
+      const found = findCard(state.players, cardInstanceId);
+      if (!found) return state;
+      const { card, playerId } = found;
+      const player = state.players[playerId];
+      const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === 'hand').map(c => c.order));
+      const crystals = player.crystals.map(cr => ({
+        ...cr,
+        sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId)
+      }));
+      return {
+        players: {
+          ...state.players,
+          [playerId]: {
+            ...player,
+            crystals,
+            cards: player.cards.map(c =>
+              c.instanceId === cardInstanceId
+                ? { ...c, zone: 'hand' as Zone, faceDown: false, sealedUnderCrystal: undefined, order: maxOrder + 1 }
+                : c
+            )
+          }
+        },
+        log: [...state.log, `Карта распечатана: ${card.template.name || 'Карта'}`]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
   setAttacked: (cardInstanceId, val) => set(state => ({
     players: updateCard(state.players, cardInstanceId, c => ({ ...c, attackedThisTurn: val }))
@@ -836,7 +838,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
-  // UTILITIES
   applyFullState: (stateUpdate) => set(stateUpdate),
   addLog: (msg) => set(state => ({ log: [...state.log, msg] })),
   addChat: (sender, text) => set(state => ({

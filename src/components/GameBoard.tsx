@@ -13,7 +13,7 @@ import { ImportDialog } from './ImportDialog';
 import { DeckBuilder } from './DeckBuilder';
 
 export const GameBoard: React.FC = () => {
-  const { players, localPlayerId } = useGameStore();
+  const { players, localPlayerId, gameStatus, setGameStatus, resetGame } = useGameStore();
   const [showImport, setShowImport] = useState(false);
   const [deckBuilderPlayerId, setDeckBuilderPlayerId] = useState<string | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
@@ -24,6 +24,57 @@ export const GameBoard: React.FC = () => {
 
   return (
     <div className="h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex flex-col overflow-hidden text-white">
+      {/* Game Over Overlay */}
+      {gameStatus !== 'playing' && (
+        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-sm w-full text-center space-y-6 shadow-2xl">
+            <div className="space-y-2">
+              <h2 className="text-3xl font-black text-yellow-400">
+                {gameStatus === 'conceded' && '🏳️ Сдались'}
+                {gameStatus === 'tie-proposed' && '🤝 Предложена ничья'}
+                {gameStatus === 'ended' && '🏁 Игра окончена'}
+              </h2>
+              <p className="text-gray-400 text-sm">
+                {gameStatus === 'conceded' && 'Один из игроков признал поражение.'}
+                {gameStatus === 'tie-proposed' && 'Оппонент предложил закончить игру вничью.'}
+                {gameStatus === 'ended' && 'Матч завершен.'}
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              {gameStatus === 'tie-proposed' && (
+                <button 
+                  className="bg-green-600 hover:bg-green-500 text-white py-2 rounded-lg font-bold transition-colors"
+                  onClick={() => { setGameStatus('ended'); }}
+                >
+                  Принять ничью
+                </button>
+              )}
+              <button 
+                className="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg font-bold transition-colors"
+                onClick={() => { resetGame(); }}
+              >
+                Начать заново
+              </button>
+              {gameStatus === 'tie-proposed' && (
+                <button 
+                  className="bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold transition-colors"
+                  onClick={() => { setGameStatus('playing'); }}
+                >
+                  Отменить
+                </button>
+              )}
+              <button 
+                className="bg-gray-800 hover:bg-gray-700 text-gray-400 py-2 rounded-lg font-bold transition-colors"
+                onClick={() => { window.location.reload(); }}
+              >
+                Выйти в меню
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="flex items-center justify-between px-2 py-1 bg-gray-900/80 border-b border-gray-800 flex-shrink-0 gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">

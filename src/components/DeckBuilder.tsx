@@ -45,8 +45,9 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
   };
 
   const handleLoadDeck = () => {
-    loadDeck(playerId, mainDeck, false);
-    loadDeck(playerId, signDeck, true);
+    // Use clearAll=true for the first load to wipe previous deck and board
+    loadDeck(playerId, mainDeck, false, true);
+    loadDeck(playerId, signDeck, true, false);
     shuffleDeck(playerId, false);
     shuffleDeck(playerId, true);
 
