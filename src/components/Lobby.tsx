@@ -326,14 +326,8 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
         console.log('[Host] Received:', msg.type);
         if (msg.type === 'chat') {
           addChat(msg.data.sender, msg.data.text);
-        } else if (msg.type === 'action') {
-          const { type, payload } = msg.data;
-          const store = useGameStore.getState();
-          store.setRemoteAction(true);
-          if (typeof store[type] === 'function') {
-            (store[type] as any)(...Object.values(payload));
-          }
-          store.setRemoteAction(false);
+        } else if (msg.type === 'state-sync') {
+          useGameStore.getState().applyBoardState(msg.data);
         } else if ((msg as any).type === 'hello') {
           // Guest says hello — now we know data channel works both ways
           const guestName = (msg as any).data?.name || 'Гость';
@@ -346,7 +340,7 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
           applyFullState({ currentTurnPlayerId: p1Id, priorityPlayerId: p1Id });
 
           setOnSendAction((action: any) => {
-            networkManager.send({ type: 'action', data: action });
+            networkManager.send(action);
           });
 
           // Send ready back to guest
@@ -384,21 +378,15 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameStart }) => {
           applyFullState({ currentTurnPlayerId: hostId, priorityPlayerId: hostId });
 
           setOnSendAction((action: any) => {
-            networkManager.send({ type: 'action', data: action });
+            networkManager.send(action);
           });
 
           setConnected(true);
           setStatus('Подключен к ' + (hostName || 'Хосту') + '!');
         } else if (msg.type === 'chat') {
           addChat(msg.data.sender, msg.data.text);
-        } else if (msg.type === 'action') {
-          const { type, payload } = msg.data;
-          const store = useGameStore.getState();
-          store.setRemoteAction(true);
-          if (typeof store[type] === 'function') {
-            (store[type] as any)(...Object.values(payload));
-          }
-          store.setRemoteAction(false);
+        } else if (msg.type === 'state-sync') {
+          useGameStore.getState().applyBoardState(msg.data);
         }
       };
 

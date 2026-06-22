@@ -1,3 +1,11 @@
+/**
+ * TYPES DEFINITIONS
+ * 
+ * In TypeScript, 'type' and 'interface' are used to define the "shape" of data.
+ * This prevents bugs by ensuring you don't accidentally try to use a property 
+ * that doesn't exist.
+ */
+
 export type Element = 'Свет' | 'Тьма' | 'Хаос' | 'Порядок' | 'Жизнь' | 'Смерть' | 'Нет';
 
 export type CardType = 'monster' | 'spell' | 'artifact' | 'sign';
@@ -37,7 +45,7 @@ export interface CardInstance {
   controllerId: string;
   attackedThisTurn: boolean;
   defendedThisTurn: boolean;
-  sealedUnderCrystal?: number; // crystal index
+  sealedUnderCrystal?: number;
   order: number;
 }
 
@@ -56,7 +64,7 @@ export type Zone =
 export interface LifeCrystal {
   currentHealth: number;
   maxHealth: number;
-  sealedCardIds: string[]; // multiple cards can be sealed under one crystal
+  sealedCardIds: string[];
   destroyed: boolean;
 }
 
@@ -77,7 +85,11 @@ export interface ChainLink {
   resolved: boolean;
 }
 
-export interface GameState {
+/**
+ * SharedGameState contains the complete board state.
+ * This is the "single source of truth" synchronized between peers.
+ */
+export interface SharedGameState {
   players: Record<string, PlayerState>;
   currentTurnPlayerId: string;
   phase: 'start' | 'action' | 'end';
@@ -87,6 +99,7 @@ export interface GameState {
   priorityPlayerId: string;
   firstTurn: boolean;
   log: string[];
+  cardTemplates: CardTemplate[];
 }
 
 export interface PeerMessage {

@@ -5,6 +5,11 @@ import type {
   LifeCrystal, ChainLink, MonsterPosition
 } from '../types';
 
+/**
+ * GameStore Interface
+ * This defines the global state and all the available actions.
+ * Zustand uses this to ensure that we only call functions that actually exist.
+ */
 interface GameStore extends GameState {
   localPlayerId: string;
   remotePlayerId: string | null;
@@ -84,8 +89,22 @@ interface GameStore extends GameState {
   getCard: (instanceId: string) => CardInstance | undefined;
 
   activateEffect: (cardInstanceId: string) => void;
+
+  executeAction: (actionType: string, payload: any) => void;
+  concede: (playerId: string) => void;
+  proposeTie: (playerId: string) => void;
+  
+  // NEW: Robust Sync methods
+  syncBoardState: () => void;
+  applyBoardState: (state: any) => void;
 }
 
+/**
+ * HELPER FUNCTIONS
+ * These functions simplify data manipulation within the store.
+ */
+
+// Searches for a card across all players' collections using its unique instanceId.
 function findCard(players: Record<string, PlayerState>, instanceId: string): { card: CardInstance; playerId: string } | null {
   for (const [pid, p] of Object.entries(players)) {
     const c = p.cards.find(c => c.instanceId === instanceId);
@@ -94,6 +113,7 @@ function findCard(players: Record<string, PlayerState>, instanceId: string): { c
   return null;
 }
 
+// Finds a card and applies a change to it (the 'updater' function).
 function updateCard(players: Record<string, PlayerState>, instanceId: string, updater: (c: CardInstance) => CardInstance): Record<string, PlayerState> {
   const newPlayers = { ...players };
   for (const pid of Object.keys(newPlayers)) {
@@ -109,6 +129,7 @@ function updateCard(players: Record<string, PlayerState>, instanceId: string, up
   return newPlayers;
 }
 
+// Generates the standard set of 6 life crystals for a new player.
 const initialCrystals = (): LifeCrystal[] =>
   Array.from({ length: 6 }, () => ({
     currentHealth: 6,
@@ -117,6 +138,7 @@ const initialCrystals = (): LifeCrystal[] =>
     destroyed: false
   }));
 
+// Converts a Zone enum value to a human-readable Russian label for the log.
 const zoneLabel = (z: Zone) => {
   const names: Record<Zone, string> = {
     hand: 'Руку', monsterZone: 'Зону Монстров', spellArtifactZone: 'Зону Заклятий',
@@ -126,7 +148,12 @@ const zoneLabel = (z: Zone) => {
   return names[z] || z;
 };
 
+/**
+ * THE MAIN STORE
+ * This is where the entire game state lives.
+ */
 export const useGameStore = create<GameStore>((set, get) => ({
+  // INITIAL STATE
   players: {},
   currentTurnPlayerId: '',
   phase: 'start',
@@ -147,11 +174,50 @@ export const useGameStore = create<GameStore>((set, get) => ({
   onSendAction: null,
   isRemoteAction: false,
 
+  // BASIC SETTERS
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
   setOnSendAction: (fn) => set({ onSendAction: fn }),
   setRemoteAction: (val) => set({ isRemoteAction: val }),
 
+  /**
+   * SYNC ENGINE
+   * executeAction is the core of the multiplayer system.
+   * It runs an action locally AND sends it to the opponent, unless the action 
+   * was already received from the network (isRemoteAction = true).
+   */
+  executeAction: (type, payload) => {
+    const onSend = get().onSendAction;
+    const isRemote = get().isRemoteAction;
+
+    // Mark as remote so the action function doesn't try to send it back to the sender
+    setRemoteAction(true);
+    if (typeof get()[type] === 'function' && type !== 'executeAction') {
+      // Extract values from payload object to pass as positional arguments to the function
+      const args = payload && typeof payload === 'object' ? Object.values(payload) : [payload];
+      (get()[type] as any)(...args);
+    }
+    setRemoteAction(false);
+
+    // If this action was triggered by a local user, sync the full board state
+    if (!isRemote) {
+      get().syncBoardState();
+    }
+  },
+
+  concede: (playerId) => {
+    const player = get().players[playerId];
+    const name = player?.name || 'Игрок';
+    get().addLog(`🏳️ ${name} сдался!`);
+  },
+
+  proposeTie: (playerId) => {
+    const player = get().players[playerId];
+    const name = player?.name || 'Игрок';
+    get().addLog(`🤝 ${name} предложил ничью`);
+  },
+
+  // PLAYER INITIALIZATION
   initPlayer: (id, name) => set(state => ({
     players: {
       ...state.players,
@@ -171,11 +237,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     cardTemplates: [...state.cardTemplates, ...templates.filter(t => !state.cardTemplates.find(e => e.id === t.id))]
   })),
 
+  // DECK MANAGEMENT
   loadDeck: (playerId, templateIds, isSignDeck) => set(state => {
     const player = state.players[playerId];
     if (!player) return state;
     const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
     const existingOther = player.cards.filter(c => c.zone !== zone);
+    
+    // Turn template IDs into unique CardInstances
     const newCards: CardInstance[] = templateIds.map((tid, i) => {
       const tmpl = state.cardTemplates.find(t => t.id === tid);
       if (!tmpl) return null;
@@ -197,6 +266,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         order: i
       } as CardInstance;
     }).filter(Boolean) as CardInstance[];
+    
     return {
       players: { ...state.players, [playerId]: { ...player, cards: [...existingOther, ...newCards] } }
     };
@@ -209,11 +279,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const zone: Zone = isSignDeck ? 'signDeck' : 'mainDeck';
       const deckCards = [...player.cards.filter(c => c.zone === zone)];
       const otherCards = player.cards.filter(c => c.zone !== zone);
+      
+      // Fisher-Yates shuffle algorithm
       for (let i = deckCards.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [deckCards[i], deckCards[j]] = [deckCards[j], deckCards[i]];
       }
       deckCards.forEach((c, i) => c.order = i);
+      
       return {
         players: { ...state.players, [playerId]: { ...player, cards: [...otherCards, ...deckCards] } },
         log: [...state.log, `${player.name} перемешал ${isSignDeck ? 'Колоду Знаков' : 'Основную Колоду'}`]
@@ -229,10 +302,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       const player = state.players[playerId];
       if (!player) return state;
+      
+      // Find the card with the lowest order index (the top of the deck)
       const deckCards = player.cards.filter(c => c.zone === 'mainDeck').sort((a, b) => a.order - b.order);
       if (deckCards.length === 0) return state;
       const topCard = deckCards[0];
       const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === 'hand').map(c => c.order));
+      
       return {
         players: {
           ...state.players,
@@ -262,6 +338,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const player = state.players[playerId];
       const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
 
+      // Handle unsealing if the card is moving out of a crystal
       let crystals = player.crystals;
       if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
         crystals = crystals.map((cr, i) =>
@@ -367,6 +444,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectCard: (cardInstanceId) => set({ selectedCardId: cardInstanceId }),
   hoverCard: (cardInstanceId) => set({ hoveredCardId: cardInstanceId }),
 
+  // LIFE CRYSTAL MANAGEMENT
   setCrystalHealth: (playerId, crystalIndex, health) => set(state => {
     const player = state.players[playerId];
     if (!player || !player.crystals[crystalIndex]) return state;
@@ -385,7 +463,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const crystals = [...player.crystals];
     crystals[crystalIndex] = { ...crystals[crystalIndex], currentHealth: 0, destroyed: true, sealedCardIds: [] };
 
-    // Auto-unseal cards under this crystal → move them to hand
     let cards = player.cards;
     const logEntries = [`${player.name}: Кристалл ${crystalIndex + 1} уничтожен!`];
     if (crystal.sealedCardIds.length > 0) {
@@ -421,7 +498,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   removeCrystal: (playerId, crystalIndex) => set(state => {
     const player = state.players[playerId];
     if (!player || !player.crystals[crystalIndex]) return state;
-    // Unseal any cards under this crystal first — put them in hand
     const crystal = player.crystals[crystalIndex];
     let cards = player.cards;
     if (crystal.sealedCardIds.length > 0) {
@@ -436,7 +512,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     }
     const crystals = player.crystals.filter((_, i) => i !== crystalIndex);
-    // Update sealedUnderCrystal indices for remaining sealed cards
     const updatedCards = cards.map(c => {
       if (c.sealedUnderCrystal !== undefined && c.sealedUnderCrystal > crystalIndex) {
         return { ...c, sealedUnderCrystal: c.sealedUnderCrystal - 1 };
@@ -449,6 +524,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
+  // COUNTER MANAGEMENT
   addCounter: (cardInstanceId, counterName, amount) => set(state => ({
     players: updateCard(state.players, cardInstanceId, c => ({
       ...c,
@@ -475,6 +551,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     })
   })),
 
+  // TOKEN LOGIC
   createToken: (playerId, zone, template) => set(state => {
     const player = state.players[playerId];
     if (!player) return state;
@@ -526,6 +603,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
+  // SIGN LOGIC
   exhaustSign: (cardInstanceId) => set(state => ({
     players: updateCard(state.players, cardInstanceId, c => ({ ...c, exhausted: true })),
     log: [...state.log, `Знак истощён`]
@@ -563,14 +641,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   returnSigns: (playerId) => set(state => {
     const player = state.players[playerId];
     if (!player) return state;
-    // Move all signs from signZone back to signDeck
     const updatedCards = player.cards.map(c => {
       if (c.zone === 'signZone') {
         return { ...c, zone: 'signDeck' as Zone, faceDown: true, exhausted: false };
       }
       return c;
     });
-    // Now shuffle the sign deck
     const signDeckCards = updatedCards.filter(c => c.zone === 'signDeck');
     const otherCards = updatedCards.filter(c => c.zone !== 'signDeck');
     for (let i = signDeckCards.length - 1; i > 0; i--) {
@@ -590,6 +666,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
+  // CHAIN LOGIC
   addChainLink: (link) => set(state => ({
     chain: [...state.chain, { ...link, linkNumber: state.chain.length + 1, resolved: false }],
     chainActive: true,
@@ -598,7 +675,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resolveLastLink: () => set(state => {
     if (state.chain.length === 0) return state;
-    // Find last unresolved link
     const lastUnresolved = [...state.chain].reverse().find(l => !l.resolved);
     if (!lastUnresolved) return { chain: [], chainActive: false };
     const newChain = state.chain.map(l =>
@@ -624,6 +700,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearChain: () => set({ chain: [], chainActive: false }),
 
+  // TURN MANAGEMENT
   setPhase: (phase) => {
     set(state => ({
       phase,
@@ -743,7 +820,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const toPlayer = state.players[newControllerId];
     if (!fromPlayer || !toPlayer) return state;
 
-    // Move card to the new controller's cards list, keeping same zone
     const movedCard: CardInstance = {
       ...card,
       controllerId: newControllerId,
@@ -766,6 +842,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
+  // UTILITIES
   applyFullState: (stateUpdate) => set(stateUpdate),
   addLog: (msg) => set(state => ({ log: [...state.log, msg] })),
   addChat: (sender, text) => set(state => ({
@@ -796,7 +873,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const found = findCard(state.players, cardInstanceId);
     if (!found) return state;
     const name = found.card.template.name || 'Карта';
-    // Automatically add to chain
     return {
       chain: [...state.chain, {
         linkNumber: state.chain.length + 1,
@@ -809,5 +885,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
       chainActive: true,
       log: [...state.log, `⚡ Активирован эффект: ${name} (Звено ${state.chain.length + 1})`]
     };
-  })
+  }),
+
+  syncBoardState: () => {
+    const state = get();
+    const onSend = state.onSendAction;
+    if (onSend) {
+      onSend({
+        type: 'state-sync',
+        data: {
+          players: state.players,
+          currentTurnPlayerId: state.currentTurnPlayerId,
+          phase: state.phase,
+          turnNumber: state.turnNumber,
+          chain: state.chain,
+          chainActive: state.chainActive,
+          priorityPlayerId: state.priorityPlayerId,
+          firstTurn: state.firstTurn,
+          log: state.log,
+          cardTemplates: state.cardTemplates,
+        }
+      });
+    }
+  },
+
+  applyBoardState: (stateUpdate) => {
+    set(state => ({
+      ...state,
+      ...stateUpdate
+    }));
+  }
 }));

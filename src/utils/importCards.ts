@@ -2,6 +2,10 @@ import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import type { CardTemplate, CardType, Element, SpellSubtype, ArtifactSubtype } from '../types';
 
+/**
+ * Maps single-letter codes (commonly used in the game's spreadsheets) 
+ * to the full element names used in the code.
+ */
 const elementLetterMap: Record<string, Element> = {
   'a': 'Хаос',
   'b': 'Порядок',
@@ -11,15 +15,20 @@ const elementLetterMap: Record<string, Element> = {
   'f': 'Тьма',
 };
 
+/**
+ * Helper to normalize element strings.
+ * Handles both full names (in Russian/English) and the single-letter codes.
+ */
 function parseElement(val: string): Element {
   if (!val || val.trim() === '') return 'Нет';
   const lower = val.toLowerCase().trim();
 
-  // Single letter codes (from the spreadsheet)
+  // Case 1: It's a single letter code (e.g., 'a' -> 'Хаос')
   if (lower.length === 1 && elementLetterMap[lower]) {
     return elementLetterMap[lower];
   }
 
+  // Case 2: It's a full word
   const map: Record<string, Element> = {
     'свет': 'Свет', 'light': 'Свет',
     'тьма': 'Тьма', 'dark': 'Тьма', 'darkness': 'Тьма',
@@ -32,17 +41,20 @@ function parseElement(val: string): Element {
   return map[lower] || 'Нет';
 }
 
+/**
+ * Determines the card type based on keywords found in the type or subtype columns.
+ */
 function parseType(val: string, subtypeVal?: string): CardType {
   const v = val?.toLowerCase()?.trim() || '';
   const s = subtypeVal?.toLowerCase()?.trim() || '';
 
-  // Check Card Type column first
+  // Check the primary 'Card Type' column
   if (v === 'sign' || v === 'знак' || v.includes('знак') || v.includes('sign')) return 'sign';
   if (v === 'monster' || v.includes('монстр')) return 'monster';
   if (v === 'spell' || v.includes('заклят') || v.includes('закл')) return 'spell';
   if (v === 'artifact' || v.includes('артефакт')) return 'artifact';
 
-  // Check Subtype column as fallback
+  // Fallback: check the 'Subtype' column for clues
   if (s.includes('знак') || s.includes('sign')) return 'sign';
   if (s.includes('заклятье') || s.includes('заклят') || s.includes('spell')) return 'spell';
   if (s.includes('монумент') || s.includes('monument') || s.includes('экипировк') || s.includes('equipment')) return 'artifact';
@@ -50,7 +62,7 @@ function parseType(val: string, subtypeVal?: string): CardType {
   if (s.includes('длительн') || s.includes('continuous')) return 'spell';
   if (s.includes('обычн') || s.includes('normal')) return 'spell';
 
-  return 'monster';
+  return 'monster'; // Default fallback
 }
 
 function parseSpellSubtype(val: string): SpellSubtype | undefined {
@@ -58,7 +70,6 @@ function parseSpellSubtype(val: string): SpellSubtype | undefined {
   if (v.includes('быстр') || v.includes('quick')) return 'quick';
   if (v.includes('длительн') || v.includes('continuous')) return 'continuous';
   if (v.includes('обычн') || v.includes('normal')) return 'normal';
-  // If it just says "заклятье" / "spell" without qualifier, default to normal
   if (v.includes('заклят') || v.includes('spell')) return 'normal';
   return undefined;
 }
@@ -70,11 +81,17 @@ function parseArtifactSubtype(val: string): ArtifactSubtype | undefined {
   return undefined;
 }
 
+/**
+ * Main parser that converts raw spreadsheet rows (array of arrays) 
+ * into a list of CardTemplate objects.
+ */
 export function parseSpreadsheetData(data: any[][]): CardTemplate[] {
-  if (data.length < 2) return [];
+  if (data.length < 2) return []; // Need at least a header row and one data row
 
+  // Clean up headers to make searching easier
   const headers = data[0].map((h: any) => String(h).toLowerCase().trim());
 
+  // Helper to find which column index matches a set of possible names
   const findCol = (...names: string[]) => {
     for (const name of names) {
       const idx = headers.findIndex(h => h === name || h.includes(name));
@@ -83,41 +100,37 @@ export function parseSpreadsheetData(data: any[][]): CardTemplate[] {
     return -1;
   };
 
-  // Match both the user's spreadsheet format and generic formats
+  // Map the spreadsheet columns to our data needs
   const nameCol = findCol('name', 'имя', 'название');
   const typeCol = findCol('card type', 'тип', 'type');
   const subtypeCol = findCol('subtype', 'подтип');
   const costCol = findCol('cost', 'цена', 'круг');
   const elementCol = findCol('element decyph', 'element', 'элемент', 'стихия');
-  const elementLetterCol = headers.indexOf('element'); // The single-letter element column
+  const elementLetterCol = headers.indexOf('element'); 
   const attackCol = findCol('attack', 'атака', 'atk');
   const healthCol = findCol('health', 'здоровье', 'hp', 'жизн');
   const effectCol = findCol('effect', 'эффект', 'текст', 'text', 'описание');
 
-  // Image columns: try imgbb first (has actual URLs), then img, then image
   const imgbbCol = findCol('imgbb');
   const imgCol = findCol('img', 'image', 'изображение', 'картинка', 'спрайт', 'sprite', 'url');
   const imageCol = imgbbCol >= 0 ? imgbbCol : imgCol;
 
   const idCol = findCol('id', 'ид', 'number');
-  // Reserved for future use:
-  // const flavorCol = findCol('flavor', 'флейвор');
-  // const rarityCol = findCol('rarity', 'редкость');
 
   const templates: CardTemplate[] = [];
 
+  // Process every row after the header
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     if (!row || row.length === 0) continue;
 
     const name = nameCol >= 0 ? String(row[nameCol] || '').trim() : '';
-    if (!name) continue;
+    if (!name) continue; // Skip rows without a name
 
     const typeStr = typeCol >= 0 ? String(row[typeCol] || '') : '';
     const subtypeStr = subtypeCol >= 0 ? String(row[subtypeCol] || '') : '';
     const type = parseType(typeStr, subtypeStr);
 
-    // Get element: prefer the decoded element name, fall back to letter code
     let element: Element = 'Нет';
     if (elementCol >= 0 && row[elementCol]) {
       element = parseElement(String(row[elementCol]));
@@ -126,16 +139,13 @@ export function parseSpreadsheetData(data: any[][]): CardTemplate[] {
       element = parseElement(String(row[elementLetterCol]));
     }
 
-    // Get image URL
     let imageUrl = '';
     if (imageCol >= 0 && row[imageCol]) {
       const rawUrl = String(row[imageCol]).trim();
-      // Only use HTTP/HTTPS URLs (skip local file paths like G:\...)
       if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
         imageUrl = rawUrl;
       }
     }
-    // If imgbb didn't work, try the other img column
     if (!imageUrl && imgCol >= 0 && imgCol !== imageCol && row[imgCol]) {
       const rawUrl = String(row[imgCol]).trim();
       if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
@@ -170,6 +180,9 @@ export function parseSpreadsheetData(data: any[][]): CardTemplate[] {
   return templates;
 }
 
+/**
+ * Reads a .xlsx or .csv file from the user's computer.
+ */
 export async function importFromFile(file: File): Promise<CardTemplate[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -190,22 +203,22 @@ export async function importFromFile(file: File): Promise<CardTemplate[]> {
   });
 }
 
+/**
+ * Fetches a public Google Sheet as a CSV and parses it.
+ */
 export async function importFromGoogleSheets(url: string): Promise<CardTemplate[]> {
-  // Extract spreadsheet ID from URL
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (!match) throw new Error('Invalid Google Sheets URL');
 
   const spreadsheetId = match[1];
-
-  // Try to extract gid for specific sheet
   const gidMatch = url.match(/gid=(\d+)/);
   const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
 
-  // Use the CSV export URL
+  // Construct the direct CSV export URL for Google Sheets
   const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv${gidParam}`;
 
   const response = await fetch(csvUrl);
-  if (!response.ok) throw new Error('Не удалось загрузить таблицу. Убедитесь, что она доступна по ссылке (Файл → Поделиться → Все, у кого есть ссылка).');
+  if (!response.ok) throw new Error('Не удалось загрузить таблицу. Убедитесь, что она доступна по ссылке.');
 
   const csvText = await response.text();
   const workbook = XLSX.read(csvText, { type: 'string' });

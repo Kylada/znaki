@@ -48,6 +48,26 @@ export const GameBoard: React.FC = () => {
               🃏 Колода Оппонента
             </button>
           )}
+          <div className="flex items-center gap-1 ml-2 border-l border-gray-700 pl-2">
+            <button
+              className="bg-gray-700 hover:bg-red-900 text-gray-300 hover:text-white px-2 py-0.5 rounded text-xs transition-colors"
+              onClick={() => { if(window.confirm('Выйти из игры?')) window.location.reload(); }}
+            >
+              🚪 Выйти
+            </button>
+            <button
+              className="bg-gray-700 hover:bg-orange-900 text-gray-300 hover:text-white px-2 py-0.5 rounded text-xs transition-colors"
+              onClick={() => { if(window.confirm('Сдаться?')) useGameStore.getState().executeAction('concede', { playerId: localPlayerId }); }}
+            >
+              🏳️ Сдаться
+            </button>
+            <button
+              className="bg-gray-700 hover:bg-green-900 text-gray-300 hover:text-white px-2 py-0.5 rounded text-xs transition-colors"
+              onClick={() => { if(window.confirm('Предложить ничью?')) useGameStore.getState().executeAction('proposeTie', { playerId: localPlayerId }); }}
+            >
+              🤝 Ничья
+            </button>
+          </div>
           <button
             className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded text-xs"
             onClick={() => setLeftPanelOpen(!leftPanelOpen)}
