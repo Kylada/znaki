@@ -29,7 +29,9 @@ interface GameStore extends GameState {
   resolutionPending: {
     type: 'link' | 'all';
     confirmedBy: string[];
+    initiatorId: string;
   } | null;
+
 
   setLocalPlayerId: (id: string) => void;
   setRemotePlayerId: (id: string | null) => void;
@@ -246,35 +248,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
   confirmResolution: (playerId) => {
     set(state => {
       if (!state.resolutionPending) return state;
-      const confirmedBy = [...(state.resolutionPending.confirmedBy || []), playerId];
-      const uniqueConfirmed = Array.from(new Set(confirmedBy));
       
-      if (uniqueConfirmed.length >= 2) {
-        // Both players confirmed! Resolve the chain.
-        let { chain, log } = state;
-        if (state.resolutionPending.type === 'link') {
-          const lastUnresolved = [...chain].reverse().find(l => !l.resolved);
-          if (lastUnresolved) {
-            chain = chain.map(l =>
-              l.linkNumber === lastUnresolved.linkNumber ? { ...l, resolved: true } : l
-            );
-            log = [...log, `✓ Разрешено Звено ${lastUnresolved.linkNumber}: ${lastUnresolved.description}`];
-          }
-        } else {
-          const descriptions = [...chain].reverse().map(l => `  ${l.linkNumber}. ${l.description}`).join('\n');
-          chain = [];
-          log = [...log, `✓ Цепь разрешена (${state.chain.length} звеньев):\n${descriptions}`];
-        }
-        
-        const allResolved = chain.every(l => l.resolved);
-        return {
-          resolutionPending: null,
-          chain: allResolved ? [] : chain,
-          chainActive: !allResolved,
-          log: log
-        };
+      // Only the player who did NOT start the resolution needs to confirm.
+      if (playerId === state.resolutionPending.initiatorId) {
+        return state;
       }
-      return { resolutionPending: { ...state.resolutionPending, confirmedBy: uniqueConfirmed } };
+
+      // Opponent confirmed! Resolve the chain.
+      let { chain, log } = state;
+      if (state.resolutionPending.type === 'link') {
+        const lastUnresolved = [...chain].reverse().find(l => !l.resolved);
+        if (lastUnresolved) {
+          chain = chain.map(l =>
+            l.linkNumber === lastUnresolved.linkNumber ? { ...l, resolved: true } : l
+          );
+          log = [...log, `✓ Разрешено Звено ${lastUnresolved.linkNumber}: ${lastUnresolved.description}`];
+        }
+      } else {
+        const descriptions = [...chain].reverse().map(l => `  ${l.linkNumber}. ${l.description}`).join('\n');
+        chain = [];
+        log = [...log, `✓ Цепь разрешена (${state.chain.length} звеньев):\n${descriptions}`];
+      }
+      
+      const allResolved = chain.every(l => l.resolved);
+      return {
+        resolutionPending: null,
+        chain: allResolved ? [] : chain,
+        chainActive: !allResolved,
+        log: log
+      };
     });
     if (!get().isRemoteAction) get().syncBoardState();
   },
@@ -287,12 +289,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   executeAction: (type, payload) => {
     const onSend = get().onSendAction;
     const isRemote = get().isRemoteAction;
-    setRemoteAction(true);
+    set({ isRemoteAction: true });
     if (typeof get()[type] === 'function' && type !== 'executeAction') {
       const args = payload && typeof payload === 'object' ? Object.values(payload) : [payload];
       (get()[type] as any)(...args);
     }
-    setRemoteAction(false);
+    set({ isRemoteAction: false });
     if (!isRemote) {
       get().syncBoardState();
     }
@@ -802,7 +804,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       if (state.chain.length === 0) return state;
       return {
-        resolutionPending: { type: 'link', confirmedBy: [] }
+        resolutionPending: { type: 'link', confirmedBy: [], initiatorId: state.priorityPlayerId || state.currentTurnPlayerId }
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -812,11 +814,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       if (state.chain.length === 0) return state;
       return {
-        resolutionPending: { type: 'all', confirmedBy: [] }
+        resolutionPending: { type: 'all', confirmedBy: [], initiatorId: state.priorityPlayerId || state.currentTurnPlayerId }
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();
   },
+
 
   clearChain: () => {
     set({ chain: [], chainActive: false });
@@ -1032,6 +1035,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           log: state.log,
           cardTemplates: state.cardTemplates,
           gameStatus: state.gameStatus,
+          combatState: state.combatState,
         }
       });
     }
@@ -1039,9 +1043,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
 
   applyBoardState: (stateUpdate) => {
-    set(state => ({
-      ...state,
-      ...stateUpdate
-    }));
+    set(state => {
+      // Merge combatState carefully to avoid losing new properties (targetIds, defenderIds)
+      const combatState = {
+        ...state.combatState,
+        ...(stateUpdate.combatState || {})
+      };
+      
+      return {
+        ...state,
+        ...stateUpdate,
+        combatState
+      };
+    });
   }
+
 }));

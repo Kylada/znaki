@@ -67,9 +67,10 @@ export const CardContextMenu: React.FC = () => {
 
   // Clamp menu position to viewport
   const menuStyle: React.CSSProperties = {
-    left: Math.min(contextMenuPosition.x, window.innerWidth - 220),
-    top: Math.min(contextMenuPosition.y, window.innerHeight - 400),
+    left: Math.min(contextMenuPosition.x, window.innerWidth - 240),
+    top: Math.max(0, Math.min(contextMenuPosition.y, window.innerHeight - 600)),
   };
+
 
   return (
     <>

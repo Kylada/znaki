@@ -83,25 +83,26 @@ const ZoneSlot: React.FC<{
           const isDefender = combatState.defenderIds.includes(card.instanceId);
 
           return (
-            <div
-              key={card.instanceId}
-              className={`relative transition-all ${card.position === 'defense' ? 'mx-3 my-2' : ''} 
-                ${isAttacker ? 'ring-4 ring-red-500 scale-105 z-10' : ''} 
-                ${isTarget ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}
-                ${isDefender ? 'ring-4 ring-blue-500 scale-105 z-10' : ''}
-              `}
-              onClick={() => handleCardClick(card.instanceId)}
-            >
+              <div
+                key={card.instanceId}
+                className={`relative transition-all ${card.position === 'defense' ? 'mx-3 my-2' : ''} 
+                  ${isAttacker ? 'ring-4 ring-red-500 scale-105 z-10' : ''} 
+                  ${isTarget ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}
+                  ${isDefender ? 'ring-4 ring-blue-500 scale-105 z-10' : ''}
+                `}
+              >
 
               <Card
                 card={card}
                 isOpponent={isOpponent}
                 draggable={!isOpponent}
+                onClick={() => handleCardClick(card.instanceId)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   openContextMenu(card.instanceId, e.clientX, e.clientY);
                 }}
               />
+
               {isAttacker && (
                 <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[10px] px-1 rounded font-bold">⚔️</div>
               )}
