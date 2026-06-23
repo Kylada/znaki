@@ -12,6 +12,8 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
   const [mainDeck, setMainDeck] = useState<string[]>([]);
   const [signDeck, setSignDeck] = useState<string[]>([]);
   const [filter, setFilter] = useState('');
+  const [importText, setImportText] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const filteredTemplates = cardTemplates.filter(t =>
     t.name.toLowerCase().includes(filter.toLowerCase()) ||
@@ -29,8 +31,6 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
   const addToSign = (id: string) => {
     if (signDeck.length >= 6) return;
     const tmpl = cardTemplates.find(t => t.id === id);
-    // Basic signs (no effect text) can be added multiple times
-    // Non-basic signs (have effect text) are limited to 1 copy
     const isBasic = !tmpl?.effectText?.trim();
     if (!isBasic && signDeck.includes(id)) return;
     setSignDeck([...signDeck, id]);
@@ -48,19 +48,15 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
     if (!window.confirm('Загрузка новой колоды заменит текущую и сбросит состояние поля. Продолжить?')) {
       return;
     }
-    // Use clearAll=true for the first load to wipe previous deck and board
     loadDeck(playerId, mainDeck, false, true);
     loadDeck(playerId, signDeck, true, false);
     shuffleDeck(playerId, false);
     shuffleDeck(playerId, true);
 
-    // Draw 6 cards for starting hand
     setTimeout(() => {
       for (let i = 0; i < 6; i++) {
         drawCard(playerId);
       }
-
-      // Seal cards under crystals
       const player = useGameStore.getState().players[playerId];
       if (player) {
         const deckCards = player.cards
@@ -74,6 +70,80 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
     }, 100);
 
     onClose();
+  };
+
+  const exportDeck = () => {
+    const mainCounts: Record<string, number> = {};
+    mainDeck.forEach(id => {
+      const name = cardTemplates.find(t => t.id === id)?.name || 'Unknown';
+      mainCounts[name] = (mainCounts[name] || 0) + 1;
+    });
+    const mainStr = Object.entries(mainCounts).map(([name, count]) => `${name} x${count}`).join(', ');
+
+    const signCounts: Record<string, number> = {};
+    signDeck.forEach(id => {
+      const name = cardTemplates.find(t => t.id === id)?.name || 'Unknown';
+      signCounts[name] = (signCounts[name] || 0) + 1;
+    });
+    const signStr = Object.entries(signCounts).map(([name, count]) => `${name} x${count}`).join(', ');
+
+    const fullExport = `Main Deck: ${mainStr}\nSign Deck: ${signStr}`;
+    
+    const blob = new Blob([fullExport], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${playerName}_deck.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportText = () => {
+    try {
+      const lines = importText.split('\n');
+      const newMain: string[] = [];
+      const newSign: string[] = [];
+
+      lines.forEach(line => {
+        if (line.startsWith('Main Deck:')) {
+          const cardsPart = line.replace('Main Deck:', '').trim();
+          if (cardsPart) {
+            cardsPart.split(',').forEach(cardStr => {
+              const [name, countStr] = cardStr.split(' x');
+              const count = parseInt(countStr) || 1;
+              const tmpl = cardTemplates.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase());
+              if (tmpl) {
+                for (let i = 0; i < count; i++) newMain.push(tmpl.id);
+              }
+            });
+          }
+        } else if (line.startsWith('Sign Deck:')) {
+          const cardsPart = line.replace('Sign Deck:', '').trim();
+          if (cardsPart) {
+            cardsPart.split(',').forEach(cardStr => {
+              const [name, countStr] = cardStr.split(' x');
+              const count = parseInt(countStr) || 1;
+              const tmpl = cardTemplates.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase() && t.type === 'sign');
+              if (tmpl) {
+                for (let i = 0; i < count; i++) newSign.push(tmpl.id);
+              }
+            });
+          }
+        }
+      });
+
+      if (newMain.length === 0 && newSign.length === 0) {
+        alert('Не удалось найти подходящие карты в тексте импорта.');
+        return;
+      }
+
+      setMainDeck(newMain);
+      setSignDeck(newSign);
+      setShowImportModal(false);
+      setImportText('');
+    } catch (e) {
+      alert('Ошибка при импорте. Проверьте формат файла.');
+    }
   };
 
   return (
@@ -127,6 +197,15 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
 
           {/* Deck lists */}
           <div className="space-y-4">
+            <div className="flex gap-2">
+              <button className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded font-bold" onClick={exportDeck}>
+                📤 Экспортировать .txt
+              </button>
+              <button className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded font-bold" onClick={() => setShowImportModal(true)}>
+                📥 Импортировать .txt
+              </button>
+            </div>
+
             <div>
               <h3 className="text-sm font-bold text-gray-200 mb-1">
                 Основная колода ({mainDeck.length}/60, мин. 35)
@@ -188,6 +267,29 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
           </div>
         </div>
       </div>
+
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-600 rounded-xl w-full max-w-lg p-4 space-y-4">
+            <h3 className="text-lg font-bold text-white">📥 Импорт колоды из текста</h3>
+            <p className="text-gray-400 text-xs">
+              Формат:<br/>
+              Main Deck: Карта 1 x3, Карта 2 x1...<br/>
+              Sign Deck: Знак 1 x1...
+            </p>
+            <textarea
+              className="w-full h-64 bg-gray-800 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+              placeholder="Вставьте текст колоды сюда..."
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <button className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded font-bold" onClick={handleImportText}>Загрузить</button>
+              <button className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-bold" onClick={() => setShowImportModal(false)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

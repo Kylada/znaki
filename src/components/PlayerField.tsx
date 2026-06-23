@@ -15,7 +15,8 @@ const ZoneSlot: React.FC<{
   isOpponent: boolean;
   onDropCard?: (cardId: string, fromZone: string) => void;
 }> = ({ zone, playerId, label, isOpponent, onDropCard }) => {
-  const { players, openContextMenu, combatState, setCombatAttacker, setCombatTarget, addCombatDefender, removeCombatDefender } = useGameStore();
+  const { players, openContextMenu, combatState, setCombatAttacker, addCombatTarget, removeCombatTarget, addCombatDefender, removeCombatDefender } = useGameStore();
+
   const player = players[playerId];
   if (!player) return null;
 
@@ -47,7 +48,11 @@ const ZoneSlot: React.FC<{
       if (!combatState.attackerId) {
         setCombatAttacker(cardId);
       } else if (combatState.attackerId !== cardId) {
-        setCombatTarget(cardId);
+        if (combatState.targetIds.includes(cardId)) {
+          removeCombatTarget(cardId);
+        } else {
+          addCombatTarget(cardId);
+        }
       }
     } else if (combatState.mode === 'defending') {
       if (combatState.defenderIds.includes(cardId)) {
@@ -57,6 +62,7 @@ const ZoneSlot: React.FC<{
       }
     }
   };
+
 
   // Check if any cards are in defense position for extra padding
   const hasDefense = zone === 'monsterZone' && cards.some(c => c.position === 'defense');
@@ -73,7 +79,7 @@ const ZoneSlot: React.FC<{
       <div className="flex flex-wrap gap-3 justify-center items-center" style={{ minHeight: hasDefense ? 135 : 130 }}>
         {cards.map(card => {
           const isAttacker = combatState.attackerId === card.instanceId;
-          const isTarget = combatState.targetId === card.instanceId;
+          const isTarget = combatState.targetIds.includes(card.instanceId);
           const isDefender = combatState.defenderIds.includes(card.instanceId);
 
           return (
@@ -86,6 +92,7 @@ const ZoneSlot: React.FC<{
               `}
               onClick={() => handleCardClick(card.instanceId)}
             >
+
               <Card
                 card={card}
                 isOpponent={isOpponent}

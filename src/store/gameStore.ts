@@ -39,10 +39,14 @@ interface GameStore extends GameState {
   setCombatMode: (mode: GameStore['combatState']['mode']) => void;
   setCombatAttacker: (id: string | null) => void;
   setCombatTarget: (id: string | null) => void;
+  addCombatTarget: (id: string) => void;
+  removeCombatTarget: (id: string) => void;
   addCombatDefender: (id: string) => void;
   removeCombatDefender: (id: string) => void;
   clearCombatState: () => void;
   confirmResolution: (playerId: string) => void;
+  cancelResolution: () => void;
+
 
   initPlayer: (id: string, name: string) => void;
   importCardTemplates: (templates: CardTemplate[]) => void;
@@ -180,9 +184,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   combatState: {
     mode: 'idle',
     attackerId: null,
-    targetId: null,
+    targetIds: [],
     defenderIds: [],
   },
+
 
   resolutionPending: null,
 
@@ -202,8 +207,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ combatState: { ...get().combatState, attackerId: id } });
     if (!get().isRemoteAction) get().syncBoardState();
   },
-  setCombatTarget: (id) => {
-    set({ combatState: { ...get().combatState, targetId: id } });
+  addCombatTarget: (id) => {
+    set(state => {
+      const currentTargets = state.combatState.targetIds || [];
+      if (currentTargets.includes(id)) return state;
+      return { combatState: { ...state.combatState, targetIds: [...currentTargets, id] } };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  removeCombatTarget: (id) => {
+    set(state => {
+      const currentTargets = state.combatState.targetIds || [];
+      return { combatState: { ...state.combatState, targetIds: currentTargets.filter(tid => tid !== id) } };
+    });
     if (!get().isRemoteAction) get().syncBoardState();
   },
   addCombatDefender: (id) => {
@@ -222,9 +238,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!get().isRemoteAction) get().syncBoardState();
   },
   clearCombatState: () => {
-    set({ combatState: { mode: 'idle', attackerId: null, targetId: null, defenderIds: [] } });
+    set({ combatState: { mode: 'idle', attackerId: null, targetIds: [], defenderIds: [] } });
     if (!get().isRemoteAction) get().syncBoardState();
   },
+
 
   confirmResolution: (playerId) => {
     set(state => {
@@ -261,6 +278,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
     if (!get().isRemoteAction) get().syncBoardState();
   },
+  cancelResolution: () => {
+    set({ resolutionPending: null });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
 
   executeAction: (type, payload) => {
     const onSend = get().onSendAction;

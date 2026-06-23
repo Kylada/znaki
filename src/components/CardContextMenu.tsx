@@ -75,9 +75,10 @@ export const CardContextMenu: React.FC = () => {
     <>
       <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
       <div
-        className="fixed z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm"
+        className="fixed z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm scrollbar-thin scrollbar-thumb-gray-700"
         style={menuStyle}
       >
+
         {/* Card name header */}
         <div className="px-3 py-1.5 text-yellow-400 font-bold border-b border-gray-700 text-xs truncate">
           {card.template.name || 'Карта'} {card.isToken && '(Токен)'}
