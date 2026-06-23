@@ -15,7 +15,7 @@ const ZoneSlot: React.FC<{
   isOpponent: boolean;
   onDropCard?: (cardId: string, fromZone: string) => void;
 }> = ({ zone, playerId, label, isOpponent, onDropCard }) => {
-  const { players, openContextMenu, combatState, setCombatAttacker, setCombatTarget, setCombatDefender } = useGameStore();
+  const { players, openContextMenu, combatState, setCombatAttacker, setCombatTarget, addCombatDefender, removeCombatDefender } = useGameStore();
   const player = players[playerId];
   if (!player) return null;
 
@@ -50,7 +50,11 @@ const ZoneSlot: React.FC<{
         setCombatTarget(cardId);
       }
     } else if (combatState.mode === 'defending') {
-      setCombatDefender(cardId);
+      if (combatState.defenderIds.includes(cardId)) {
+        removeCombatDefender(cardId);
+      } else {
+        addCombatDefender(cardId);
+      }
     }
   };
 
@@ -70,7 +74,7 @@ const ZoneSlot: React.FC<{
         {cards.map(card => {
           const isAttacker = combatState.attackerId === card.instanceId;
           const isTarget = combatState.targetId === card.instanceId;
-          const isDefender = combatState.defenderId === card.instanceId;
+          const isDefender = combatState.defenderIds.includes(card.instanceId);
 
           return (
             <div

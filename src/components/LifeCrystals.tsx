@@ -7,7 +7,7 @@ interface LifeCrystalsProps {
 }
 
 export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent }) => {
-  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard } = useGameStore();
+  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard, combatState, setCombatTarget } = useGameStore();
   const player = players[playerId];
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState(6);
@@ -17,6 +17,18 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
   const activeCrystals = player.crystals.filter(c => !c.destroyed);
   const totalHP = activeCrystals.reduce((s, c) => s + c.currentHealth, 0);
 
+  const handleCrystalClick = (idx: number) => {
+    if (combatState.mode === 'attacking' && combatState.attackerId) {
+      setCombatTarget(playerId);
+      return;
+    }
+
+    if (!isOpponent) {
+      setEditingIdx(editingIdx === idx ? null : idx);
+      setEditValue(player.crystals[idx].currentHealth);
+    }
+  };
+
   return (
     <div className="flex items-center gap-1.5">
       <div className="text-xs text-gray-400 mr-1 font-mono">
@@ -24,11 +36,7 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
       </div>
       {player.crystals.map((crystal, idx) => {
         if (crystal.destroyed) {
-          return (
-            <div key={idx} className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-800 flex items-center justify-center text-gray-700 text-xs opacity-40" title={`Кристалл ${idx + 1} — Разрушен`}>
-              💔
-            </div>
-          );
+          return null;
         }
 
         const healthPercent = crystal.currentHealth / crystal.maxHealth;
@@ -38,11 +46,22 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
         return (
           <div key={idx} className="relative group">
             <div
-              className={`w-9 h-9 rounded-lg bg-gradient-to-b ${color} border-2 border-white/30 flex flex-col items-center justify-center text-white font-bold cursor-pointer shadow-lg hover:scale-110 transition-transform`}
-              onClick={() => {
-                if (!isOpponent) {
-                  setEditingIdx(editingIdx === idx ? null : idx);
-                  setEditValue(crystal.currentHealth);
+              className={`w-9 h-9 rounded-lg bg-gradient-to-b ${color} border-2 border-white/30 flex flex-col items-center justify-center text-white font-bold cursor-pointer shadow-lg hover:scale-110 transition-transform 
+                ${combatState.targetId === playerId ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}`}
+              onClick={() => handleCrystalClick(idx)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add('ring-4', 'ring-white');
+              }}
+              onDragLeave={(e) => {
+                e.currentTarget.classList.remove('ring-4', 'ring-white');
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove('ring-4', 'ring-white');
+                const cardId = e.dataTransfer.getData('cardInstanceId');
+                if (cardId) {
+                  useGameStore.getState().sealCard(cardId, idx, playerId);
                 }
               }}
               title={`Кристалл ${idx + 1}: ${crystal.currentHealth}/${crystal.maxHealth}${sealedCount > 0 ? ` | ${sealedCount} запечатано` : ''}`}
@@ -61,7 +80,7 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
             {editingIdx === idx && !isOpponent && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setEditingIdx(null)} />
-                <div className="absolute top-11 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 rounded-lg p-2 z-40 min-w-[160px] space-y-1.5 shadow-xl">
+                <div className="absolute bottom-11 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 rounded-lg p-2 z-40 min-w-[160px] space-y-1.5 shadow-xl">
                   <div className="text-xs text-gray-400 font-bold">Кристалл {idx + 1}</div>
 
                   {/* Health controls */}

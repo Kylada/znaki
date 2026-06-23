@@ -23,8 +23,8 @@ interface GameStore extends GameState {
   combatState: {
     mode: 'idle' | 'attacking' | 'defending';
     attackerId: string | null;
-    targetId: string | null;
-    defenderId: string | null;
+    targetId: string | null; // Can be cardInstanceId or playerId
+    defenderIds: string[];
   };
   resolutionPending: {
     type: 'link' | 'all';
@@ -39,7 +39,8 @@ interface GameStore extends GameState {
   setCombatMode: (mode: GameStore['combatState']['mode']) => void;
   setCombatAttacker: (id: string | null) => void;
   setCombatTarget: (id: string | null) => void;
-  setCombatDefender: (id: string | null) => void;
+  addCombatDefender: (id: string) => void;
+  removeCombatDefender: (id: string) => void;
   clearCombatState: () => void;
   confirmResolution: (playerId: string) => void;
 
@@ -695,57 +696,63 @@ export const useGameStore = create<GameStore>((set, get) => ({
     log: [...state.log, `Знак восстановлен`]
   })),
 
-  inscribeSigns: (playerId, count) => set(state => {
-    const player = state.players[playerId];
-    if (!player) return state;
-    const signDeckCards = player.cards.filter(c => c.zone === 'signDeck').sort((a, b) => a.order - b.order);
-    const toInscribe = signDeckCards.slice(0, count);
-    let order = Math.max(0, ...player.cards.filter(c => c.zone === 'signZone').map(c => c.order));
-    return {
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          cards: player.cards.map(c => {
-            if (toInscribe.find(ti => ti.instanceId === c.instanceId)) {
-              order++;
-              return { ...c, zone: 'signZone' as Zone, faceDown: false, exhausted: false, order };
-            }
-            return c;
-          })
-        }
-      },
-      log: [...state.log, `${player.name} начертал ${toInscribe.length} Знак(ов)`]
-    };
-  }),
-
-  returnSigns: (playerId) => set(state => {
-    const player = state.players[playerId];
-    if (!player) return state;
-    const updatedCards = player.cards.map(c => {
-      if (c.zone === 'signZone') {
-        return { ...c, zone: 'signDeck' as Zone, faceDown: true, exhausted: false };
-      }
-      return c;
+  inscribeSigns: (playerId, count) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const signDeckCards = player.cards.filter(c => c.zone === 'signDeck').sort((a, b) => a.order - b.order);
+      const toInscribe = signDeckCards.slice(0, count);
+      let order = Math.max(0, ...player.cards.filter(c => c.zone === 'signZone').map(c => c.order));
+      return {
+        players: {
+          ...state.players,
+          [playerId]: {
+            ...player,
+            cards: player.cards.map(c => {
+              if (toInscribe.find(ti => ti.instanceId === c.instanceId)) {
+                order++;
+                return { ...c, zone: 'signZone' as Zone, faceDown: false, exhausted: false, order };
+              }
+              return c;
+            })
+          }
+        },
+        log: [...state.log, `${player.name} начертал ${toInscribe.length} Знак(ов)`]
+      };
     });
-    const signDeckCards = updatedCards.filter(c => c.zone === 'signDeck');
-    const otherCards = updatedCards.filter(c => c.zone !== 'signDeck');
-    for (let i = signDeckCards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [signDeckCards[i], signDeckCards[j]] = [signDeckCards[j], signDeckCards[i]];
-    }
-    signDeckCards.forEach((c, i) => c.order = i);
-    return {
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          cards: [...otherCards, ...signDeckCards]
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
+  returnSigns: (playerId) => {
+    set(state => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const updatedCards = player.cards.map(c => {
+        if (c.zone === 'signZone') {
+          return { ...c, zone: 'signDeck' as Zone, faceDown: true, exhausted: false };
         }
-      },
-      log: [...state.log, `${player.name} вернул Знаки в Колоду и перемешал её`]
-    };
-  }),
+        return c;
+      });
+      const signDeckCards = updatedCards.filter(c => c.zone === 'signDeck');
+      const otherCards = updatedCards.filter(c => c.zone !== 'signDeck');
+      for (let i = signDeckCards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [signDeckCards[i], signDeckCards[j]] = [signDeckCards[j], signDeckCards[i]];
+      }
+      signDeckCards.forEach((c, i) => c.order = i);
+      return {
+        players: {
+          ...state.players,
+          [playerId]: {
+            ...player,
+            cards: [...otherCards, ...signDeckCards]
+          }
+        },
+        log: [...state.log, `${player.name} вернул Знаки в Колоду и перемешал её`]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
   addChainLink: (link) => {
     set(state => ({
@@ -803,8 +810,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         phase: 'start' as const,
         turnNumber: state.turnNumber + 1,
         firstTurn: false,
-        chain: [],
-        chainActive: false,
+        // Chain is no longer automatically cleared here
         log: [...state.log, `--- Ход ${state.turnNumber + 1}: ${state.players[nextPlayerId]?.name || nextPlayerId} ---`]
       };
     });
