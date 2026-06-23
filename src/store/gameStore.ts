@@ -181,8 +181,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     mode: 'idle',
     attackerId: null,
     targetId: null,
-    defenderId: null,
+    defenderIds: [],
   },
+
   resolutionPending: null,
 
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
@@ -205,14 +206,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ combatState: { ...get().combatState, targetId: id } });
     if (!get().isRemoteAction) get().syncBoardState();
   },
-  setCombatDefender: (id) => {
-    set({ combatState: { ...get().combatState, defenderId: id } });
+  addCombatDefender: (id) => {
+    set(state => {
+      const currentDefenders = state.combatState.defenderIds || [];
+      if (currentDefenders.includes(id)) return state;
+      return { combatState: { ...state.combatState, defenderIds: [...currentDefenders, id] } };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+  removeCombatDefender: (id) => {
+    set(state => {
+      const currentDefenders = state.combatState.defenderIds || [];
+      return { combatState: { ...state.combatState, defenderIds: currentDefenders.filter(did => did !== id) } };
+    });
     if (!get().isRemoteAction) get().syncBoardState();
   },
   clearCombatState: () => {
-    set({ combatState: { mode: 'idle', attackerId: null, targetId: null, defenderId: null } });
+    set({ combatState: { mode: 'idle', attackerId: null, targetId: null, defenderIds: [] } });
     if (!get().isRemoteAction) get().syncBoardState();
   },
+
   confirmResolution: (playerId) => {
     set(state => {
       if (!state.resolutionPending) return state;
