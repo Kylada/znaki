@@ -1031,10 +1031,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
           firstTurn: state.firstTurn,
           log: state.log,
           cardTemplates: state.cardTemplates,
+          gameStatus: state.gameStatus,
         }
       });
     }
   },
+
 
   applyBoardState: (stateUpdate) => {
     set(state => ({

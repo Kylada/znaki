@@ -50,7 +50,7 @@ export const TurnControls: React.FC = () => {
       </div>
 
       {/* Combat controls */}
-      {isMyTurn && phase === 'action' && (
+      {phase === 'action' && (
         <div className="flex gap-1 border-l border-gray-700 pl-3">
           <button
             className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
