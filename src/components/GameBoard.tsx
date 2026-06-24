@@ -19,6 +19,8 @@ export const GameBoard: React.FC = () => {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
 
+  console.log('GameBoard Render - gameStatus:', gameStatus);
+
   const playerIds = Object.keys(players);
   const opponentId = playerIds.find(id => id !== localPlayerId) || '';
 
@@ -26,8 +28,8 @@ export const GameBoard: React.FC = () => {
     <div className="h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex flex-col overflow-hidden text-white">
       {/* Game Over Overlay */}
       {gameStatus !== 'playing' && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-sm w-full text-center space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-gray-900 border-2 border-yellow-500/50 rounded-2xl p-8 max-w-sm w-full text-center space-y-6 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
             <div className="space-y-2">
               <h2 className="text-3xl font-black text-yellow-400">
                 {gameStatus === 'conceded' && '🏳️ Сдались'}

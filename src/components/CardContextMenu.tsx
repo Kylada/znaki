@@ -67,16 +67,15 @@ export const CardContextMenu: React.FC = () => {
 
   // Clamp menu position to viewport
   const menuStyle: React.CSSProperties = {
-    left: Math.min(contextMenuPosition.x, window.innerWidth - 240),
-    top: Math.max(0, Math.min(contextMenuPosition.y, window.innerHeight - 600)),
+    left: Math.min(contextMenuPosition.x, window.innerWidth - 250),
+    top: Math.max(10, Math.min(contextMenuPosition.y, window.innerHeight - 450)),
   };
-
 
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
       <div
-        className="fixed z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm scrollbar-thin scrollbar-thumb-gray-700"
+        className="fixed z-50 bg-gray-900 border-2 border-gray-600 rounded-lg shadow-2xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm scrollbar-thin scrollbar-thumb-gray-600"
         style={menuStyle}
       >
 

@@ -100,7 +100,9 @@ export interface SharedGameState {
   firstTurn: boolean;
   log: string[];
   cardTemplates: CardTemplate[];
+  gameStatus: 'playing' | 'conceded' | 'tie-proposed' | 'ended';
 }
+
 
 export interface PeerMessage {
   type: 'state-sync' | 'action' | 'chat' | 'deck-import' | 'ready';

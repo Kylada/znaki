@@ -303,6 +303,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   concede: (playerId) => {
     const player = get().players[playerId];
     const name = player?.name || 'Игрок';
+    console.log('Executing concede for:', playerId, 'New status: conceded');
     set({ gameStatus: 'conceded' });
     get().addLog(`🏳️ ${name} сдался!`);
     if (!get().isRemoteAction) get().syncBoardState();
@@ -311,10 +312,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   proposeTie: (playerId) => {
     const player = get().players[playerId];
     const name = player?.name || 'Игрок';
+    console.log('Executing proposeTie for:', playerId, 'New status: tie-proposed');
     set({ gameStatus: 'tie-proposed' });
     get().addLog(`🤝 ${name} предложил ничью`);
     if (!get().isRemoteAction) get().syncBoardState();
   },
+
 
   resetGame: () => {
     const { players, localPlayerId, remotePlayerId } = get();
