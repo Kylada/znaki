@@ -13,7 +13,7 @@ import { ImportDialog } from './ImportDialog';
 import { DeckBuilder } from './DeckBuilder';
 
 export const GameBoard: React.FC = () => {
-  const { players, localPlayerId, gameStatus, setGameStatus, resetGame } = useGameStore();
+  const { players, localPlayerId, gameStatus, setGameStatus, resetGame, tieProposedBy } = useGameStore();
   const [showImport, setShowImport] = useState(false);
   const [deckBuilderPlayerId, setDeckBuilderPlayerId] = useState<string | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
@@ -46,8 +46,17 @@ export const GameBoard: React.FC = () => {
             <div className="flex flex-col gap-3">
               {gameStatus === 'tie-proposed' && (
                 <button 
-                  className="bg-green-600 hover:bg-green-500 text-white py-2 rounded-lg font-bold transition-colors"
-                  onClick={() => { setGameStatus('ended'); }}
+                  className={`py-2 rounded-lg font-bold transition-colors ${
+                    tieProposedBy !== localPlayerId 
+                      ? 'bg-green-600 hover:bg-green-500 text-white' 
+                      : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                  }`}
+                  onClick={() => { 
+                    if (tieProposedBy !== localPlayerId) {
+                      setGameStatus('ended'); 
+                    }
+                  }}
+                  disabled={tieProposedBy === localPlayerId}
                 >
                   Принять ничью
                 </button>

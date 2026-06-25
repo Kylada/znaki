@@ -23,14 +23,16 @@ interface GameStore extends GameState {
   combatState: {
     mode: 'idle' | 'attacking' | 'defending';
     attackerId: string | null;
-    targetId: string | null; // Can be cardInstanceId or playerId
+    targetIds: string[]; // Can be cardInstanceId or playerId
     defenderIds: string[];
   };
+  tieProposedBy: string | null;
   resolutionPending: {
     type: 'link' | 'all';
     confirmedBy: string[];
     initiatorId: string;
   } | null;
+
 
 
   setLocalPlayerId: (id: string) => void;
@@ -189,9 +191,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     targetIds: [],
     defenderIds: [],
   },
-
-
+  tieProposedBy: null,
   resolutionPending: null,
+
 
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
@@ -539,14 +541,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!get().isRemoteAction) get().syncBoardState();
   },
 
-  changePosition: (cardInstanceId, position) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({ ...c, position })),
-    log: [...state.log, `Монстр сменил позицию: ${position === 'attack' ? 'Атакующая' : 'Защитная'}`]
-  })),
+  changePosition: (cardInstanceId, position) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({ ...c, position })),
+      log: [...state.log, `Монстр сменил позицию: ${position === 'attack' ? 'Атакующая' : 'Защитная'}`]
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  flipCard: (cardInstanceId) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({ ...c, faceDown: !c.faceDown }))
-  })),
+  // I will add syncBoardState calls to all mutation functions in a batch update or one by one.
+  // Actually, let's use a pattern to avoid duplication.
+
+
+  flipCard: (cardInstanceId) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({ ...c, faceDown: !c.faceDown }))
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
 
   selectCard: (cardInstanceId) => set({ selectedCardId: cardInstanceId }),
   hoverCard: (cardInstanceId) => set({ hoveredCardId: cardInstanceId }),
@@ -649,31 +662,41 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!get().isRemoteAction) get().syncBoardState();
   },
 
-  addCounter: (cardInstanceId, counterName, amount) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({
-      ...c,
-      counters: { ...c.counters, [counterName]: (c.counters[counterName] || 0) + amount }
-    }))
-  })),
+  addCounter: (cardInstanceId, counterName, amount) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({
+        ...c,
+        counters: { ...c.counters, [counterName]: (c.counters[counterName] || 0) + amount }
+      }))
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  removeCounter: (cardInstanceId, counterName, amount) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => {
-      const newVal = Math.max(0, (c.counters[counterName] || 0) - amount);
-      const counters = { ...c.counters };
-      if (newVal <= 0) delete counters[counterName];
-      else counters[counterName] = newVal;
-      return { ...c, counters };
-    })
-  })),
+  removeCounter: (cardInstanceId, counterName, amount) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => {
+        const newVal = Math.max(0, (c.counters[counterName] || 0) - amount);
+        const counters = { ...c.counters };
+        if (newVal <= 0) delete counters[counterName];
+        else counters[counterName] = newVal;
+        return { ...c, counters };
+      })
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  setCounter: (cardInstanceId, counterName, amount) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => {
-      const counters = { ...c.counters };
-      if (amount <= 0) delete counters[counterName];
-      else counters[counterName] = amount;
-      return { ...c, counters };
-    })
-  })),
+  setCounter: (cardInstanceId, counterName, amount) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => {
+        const counters = { ...c.counters };
+        if (amount <= 0) delete counters[counterName];
+        else counters[counterName] = amount;
+        return { ...c, counters };
+      })
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
 
   createToken: (playerId, zone, template) => set(state => {
     const player = state.players[playerId];
@@ -925,21 +948,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!get().isRemoteAction) get().syncBoardState();
   },
 
-  setAttacked: (cardInstanceId, val) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({ ...c, attackedThisTurn: val }))
-  })),
+  setAttacked: (cardInstanceId, val) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({ ...c, attackedThisTurn: val }))
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  setDefended: (cardInstanceId, val) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({ ...c, defendedThisTurn: val }))
-  })),
+  setDefended: (cardInstanceId, val) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({ ...c, defendedThisTurn: val }))
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  setCardAttack: (cardInstanceId, attack) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({ ...c, currentAttack: attack }))
-  })),
+  setCardAttack: (cardInstanceId, attack) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({ ...c, currentAttack: attack }))
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
-  setCardHealth: (cardInstanceId, health) => set(state => ({
-    players: updateCard(state.players, cardInstanceId, c => ({ ...c, currentHealth: health }))
-  })),
+  setCardHealth: (cardInstanceId, health) => {
+    set(state => ({
+      players: updateCard(state.players, cardInstanceId, c => ({ ...c, currentHealth: health }))
+    }));
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
 
   giveControl: (cardInstanceId, newControllerId) => set(state => {
     const found = findCard(state.players, cardInstanceId);
