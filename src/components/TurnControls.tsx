@@ -5,7 +5,8 @@ export const TurnControls: React.FC = () => {
   const {
     currentTurnPlayerId, phase, turnNumber, players,
     setPhase, nextTurn, localPlayerId,
-    setCombatMode, clearCombatState, combatState
+    setCombatMode, clearCombatState, combatState,
+    resolveCombat, gameStatus, tieProposedBy, acceptTie, cancelTie
   } = useGameStore();
 
   const currentPlayerName = players[currentTurnPlayerId]?.name || '?';
@@ -18,7 +19,28 @@ export const TurnControls: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-900/90 border border-gray-700 rounded-lg px-3 py-2 flex items-center gap-3 flex-wrap">
+    <div className="relative bg-gray-900/90 border border-gray-700 rounded-lg px-3 py-2 flex items-center gap-3 flex-wrap">
+      {/* Tie proposal overlay/button */}
+      {gameStatus === 'tie-proposed' && (
+        <div className="absolute inset-0 z-[100] bg-black/60 flex items-center justify-center gap-4 rounded-lg backdrop-blur-sm">
+          <div className="text-white text-sm font-bold">
+            {players[tieProposedBy || '']?.name || 'Оппонент'} предложил ничью
+          </div>
+          <button 
+            className="bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-xs font-bold"
+            onClick={() => acceptTie(localPlayerId)}
+          >
+            Принять
+          </button>
+          <button 
+            className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded text-xs font-bold"
+            onClick={cancelTie}
+          >
+            Отклонить
+          </button>
+        </div>
+      )}
+
       {/* Turn info */}
       <div className="text-xs">
         <span className="text-gray-500">Ход</span>{' '}
@@ -73,12 +95,20 @@ export const TurnControls: React.FC = () => {
             🛡 Защита
           </button>
           {combatState.mode !== 'idle' && (
-            <button
-              className="px-2 py-1 rounded text-xs font-bold bg-gray-700 text-gray-300 hover:bg-gray-600"
-              onClick={clearCombatState}
-            >
-              Отмена
-            </button>
+            <>
+              <button
+                className="px-2 py-1 rounded text-xs font-bold bg-yellow-600 text-white hover:bg-yellow-500 animate-pulse"
+                onClick={resolveCombat}
+              >
+                🔥 Разрешить
+              </button>
+              <button
+                className="px-2 py-1 rounded text-xs font-bold bg-gray-700 text-gray-300 hover:bg-gray-600"
+                onClick={clearCombatState}
+              >
+                Отмена
+              </button>
+            </>
           )}
         </div>
       )}

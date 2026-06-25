@@ -59,6 +59,9 @@ interface GameStore extends GameState {
   clearCombatState: () => void;
   confirmResolution: (playerId: string) => void;
   cancelResolution: () => void;
+  resolveCombat: () => void;
+  acceptTie: (playerId: string) => void;
+  cancelTie: () => void;
 
 
   initPlayer: (id: string, name: string) => void;
@@ -308,6 +311,102 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!get().isRemoteAction) get().syncBoardState();
   },
 
+  resolveCombat: () => {
+    const { combatState, players, localPlayerId } = get();
+    if (!combatState.attackerId) return;
+
+    const attackerCard = get().getCard(combatState.attackerId);
+    if (!attackerCard) return;
+
+    const attackValue = attackerCard.currentAttack || 0;
+    let currentLog = [`⚔️ ${attackerCard.template.name} атакует с силой ${attackValue}!`];
+
+    set(state => {
+      const newPlayers = { ...state.players };
+      
+      state.combatState.targetIds.forEach(targetId => {
+        const targetCard = get().getCard(targetId);
+        
+        if (targetCard) {
+          // Target is a card
+          const targetOwnerId = targetCard.ownerId;
+          const p = newPlayers[targetOwnerId];
+          if (p) {
+            const cardIdx = p.cards.findIndex(c => c.instanceId === targetId);
+            if (cardIdx !== -1) {
+              const card = p.cards[cardIdx];
+              const newHealth = (card.currentHealth || 0) - attackValue;
+              
+              if (newHealth <= 0) {
+                currentLog.push(`💥 ${targetCard.template.name} уничтожен!`);
+                // Move to graveyard
+                const updatedCards = p.cards.map(c => 
+                  c.instanceId === targetId ? { ...c, zone: 'graveyard' as Zone, currentHealth: 0 } : c
+                );
+                newPlayers[targetOwnerId] = { ...p, cards: updatedCards };
+              } else {
+                currentLog.push(`🩸 ${targetCard.template.name} получает ${attackValue} урона (Осталось: ${newHealth})`);
+                const updatedCards = p.cards.map(c => 
+                  c.instanceId === targetId ? { ...c, currentHealth: newHealth } : c
+                );
+                newPlayers[targetOwnerId] = { ...p, cards: updatedCards };
+              }
+            }
+          }
+        } else {
+          // Target is likely a playerId (Life Crystals)
+          const targetPlayerId = targetId;
+          const p = newPlayers[targetPlayerId];
+          if (p) {
+            let remainingDamage = attackValue;
+            const updatedCrystals = [...p.crystals];
+            
+            for (let i = 0; i < updatedCrystals.length && remainingDamage > 0; i++) {
+              const crystal = updatedCrystals[i];
+              if (crystal.destroyed) continue;
+              
+              const damageToCrystal = Math.min(crystal.currentHealth, remainingDamage);
+              updatedCrystals[i] = { ...crystal, currentHealth: crystal.currentHealth - damageToCrystal };
+              remainingDamage -= damageToCrystal;
+              
+              if (updatedCrystals[i].currentHealth <= 0) {
+                updatedCrystals[i].destroyed = true;
+                currentLog.push(`💎 Кристалл ${i + 1} игрока ${p.name} разбит!`);
+              }
+            }
+            
+            if (remainingDamage > 0) {
+              currentLog.push(`⚠️ Урон ${remainingDamage} не был поглощен кристаллами!`);
+            }
+            
+            newPlayers[targetPlayerId] = { ...p, crystals: updatedCrystals };
+          }
+        }
+      });
+
+      return {
+        players: newPlayers,
+        combatState: { mode: 'idle', attackerId: null, targetIds: [], defenderIds: [] },
+        log: [...state.log, ...currentLog]
+      };
+    });
+
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
+  acceptTie: (playerId) => {
+    const { players } = get();
+    const name = players[playerId]?.name || 'Игрок';
+    set({ gameStatus: 'ended' });
+    get().addLog(`🤝 ${name} принял предложение о ничьей. Игра окончена!`);
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
+  cancelTie: () => {
+    set({ gameStatus: 'playing', tieProposedBy: null });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
 
   executeAction: (type, payload) => {
     const onSend = get().onSendAction;
@@ -336,7 +435,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const player = get().players[playerId];
     const name = player?.name || 'Игрок';
     console.log('Executing proposeTie for:', playerId, 'New status: tie-proposed');
-    set({ gameStatus: 'tie-proposed' });
+    set({ gameStatus: 'tie-proposed', tieProposedBy: playerId });
     get().addLog(`🤝 ${name} предложил ничью`);
     if (!get().isRemoteAction) get().syncBoardState();
   },
@@ -1102,6 +1201,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
           cardTemplates: state.cardTemplates,
           gameStatus: state.gameStatus,
           combatState: state.combatState,
+          decks: state.decks,
+          resolutionPending: state.resolutionPending,
+          tieProposedBy: state.tieProposedBy,
         }
       });
     }
