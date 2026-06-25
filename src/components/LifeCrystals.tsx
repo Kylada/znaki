@@ -7,7 +7,7 @@ interface LifeCrystalsProps {
 }
 
 export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent }) => {
-  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard, combatState, setCombatTarget, addCombatTarget } = useGameStore();
+  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard, combatState, setCombatTarget, addCombatTarget, addLog } = useGameStore();
   const player = players[playerId];
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState(6);
@@ -18,13 +18,11 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
   const totalHP = activeCrystals.reduce((s, c) => s + c.currentHealth, 0);
 
   const handleCrystalClick = (idx: number) => {
-    console.log('Crystal clicked. Mode:', combatState.mode, 'Attacker:', combatState.attackerId);
     if (combatState.mode === 'attacking') {
       if (!combatState.attackerId) {
-        useGameStore.getState().addLog('⚠️ Сначала выберите карту-атакующего!');
+        addLog('⚠️ Сначала выберите карту-атакующего!');
         return;
       }
-      console.log('Adding target:', playerId);
       addCombatTarget(playerId);
       return;
     }

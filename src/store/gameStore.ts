@@ -403,7 +403,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   acceptTie: (playerId) => {
     const { players, localPlayerId, remotePlayerId } = get();
-    if (!remotePlayerId) return;
+    if (!remotePlayerId || playerId === localPlayerId) return;
     
     const name = players[playerId]?.name || 'Игрок';
     set({ gameStatus: 'ended' });
@@ -1229,7 +1229,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   applyBoardState: (stateUpdate) => {
     set(state => {
-      // Merge combatState carefully to avoid losing new properties (targetIds, defenderIds)
       const combatState = {
         ...state.combatState,
         ...(stateUpdate.combatState || {})
@@ -1238,7 +1237,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return {
         ...state,
         ...stateUpdate,
-        combatState
+        combatState,
+        // Prevent overwriting decks if the update doesn't actually contain a valid decks object
+        decks: (stateUpdate.decks && Object.keys(stateUpdate.decks).length > 0) 
+               ? stateUpdate.decks 
+               : state.decks,
       };
     });
   }

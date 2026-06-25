@@ -63,20 +63,28 @@ export const ChainVisualizer: React.FC = () => {
             </>
           ) : (
             <div className="flex gap-1 flex-1">
-              <button
-                className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-xs px-2 py-1.5 rounded font-bold animate-pulse"
-                onClick={() => confirmResolution(localPlayerId)}
-                disabled={resolutionPending.confirmedBy.includes(localPlayerId)}
-              >
-                {resolutionPending.confirmedBy.includes(localPlayerId) ? '✅ Подтверждено' : 'Подтвердить разрешение'}
-              </button>
-              <button
-                className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1.5 rounded"
-                onClick={cancelResolution}
-                title="Отменить подтверждение"
-              >
-                ✕
-              </button>
+              {resolutionPending.initiatorId === localPlayerId ? (
+                <div className="flex-1 flex items-center justify-center text-gray-400 text-[10px] italic animate-pulse">
+                  Ожидание подтверждения оппонента...
+                </div>
+              ) : (
+                <>
+                  <button
+                    className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-xs px-2 py-1.5 rounded font-bold animate-pulse"
+                    onClick={() => confirmResolution(localPlayerId)}
+                    disabled={resolutionPending.confirmedBy.includes(localPlayerId)}
+                  >
+                    {resolutionPending.confirmedBy.includes(localPlayerId) ? '✅ Подтверждено' : 'Подтвердить разрешение'}
+                  </button>
+                  <button
+                    className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1.5 rounded"
+                    onClick={cancelResolution}
+                    title="Отменить подтверждение"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
             </div>
           )}
           <button
@@ -88,8 +96,6 @@ export const ChainVisualizer: React.FC = () => {
           </button>
         </div>
       )}
-
-
 
       {showAddLink && (
         <div className="space-y-1 mb-2">
@@ -119,7 +125,6 @@ export const ChainVisualizer: React.FC = () => {
         <div className="text-gray-600 text-xs text-center py-2">Нет активных звеньев</div>
       ) : (
         <div className="space-y-1">
-          {/* Show resolution order hint */}
           {unresolvedCount > 1 && (
             <div className="text-center text-gray-500 text-[10px] mb-1">
               ↓ Разрешается снизу вверх ↓
