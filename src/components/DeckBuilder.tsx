@@ -7,10 +7,19 @@ interface DeckBuilderProps {
 }
 
 export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) => {
-  const { cardTemplates, loadDeck, shuffleDeck, sealCard, drawCard, players } = useGameStore();
+  const { cardTemplates, loadDeck, shuffleDeck, sealCard, drawCard, players, decks, setDecks } = useGameStore();
   const playerName = players[playerId]?.name || playerId;
-  const [mainDeck, setMainDeck] = useState<string[]>([]);
-  const [signDeck, setSignDeck] = useState<string[]>([]);
+  
+  const mainDeck = decks[playerId]?.main || [];
+  const signDeck = decks[playerId]?.sign || [];
+
+  const updateDeck = (newMain: string[], newSign: string[]) => {
+    setDecks({
+      ...decks,
+      [playerId]: { main: newMain, sign: newSign }
+    });
+  };
+
   const [filter, setFilter] = useState('');
   const [importText, setImportText] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
@@ -24,7 +33,7 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
   const addToMain = (id: string) => {
     const count = mainDeck.filter(d => d === id).length;
     if (count < 3 && mainDeck.length < 60) {
-      setMainDeck([...mainDeck, id]);
+      updateDeck([...mainDeck, id], signDeck);
     }
   };
 
@@ -33,15 +42,15 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
     const tmpl = cardTemplates.find(t => t.id === id);
     const isBasic = !tmpl?.effectText?.trim();
     if (!isBasic && signDeck.includes(id)) return;
-    setSignDeck([...signDeck, id]);
+    updateDeck(mainDeck, [...signDeck, id]);
   };
 
   const removeFromMain = (idx: number) => {
-    setMainDeck(mainDeck.filter((_, i) => i !== idx));
+    updateDeck(mainDeck.filter((_, i) => i !== idx), signDeck);
   };
 
   const removeFromSign = (idx: number) => {
-    setSignDeck(signDeck.filter((_, i) => i !== idx));
+    updateDeck(mainDeck, signDeck.filter((_, i) => i !== idx));
   };
 
   const handleLoadDeck = () => {
@@ -137,8 +146,7 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ playerId, onClose }) =
         return;
       }
 
-      setMainDeck(newMain);
-      setSignDeck(newSign);
+      updateDeck(newMain, newSign);
       setShowImportModal(false);
       setImportText('');
     } catch (e) {

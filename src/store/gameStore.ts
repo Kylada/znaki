@@ -42,7 +42,16 @@ interface GameStore extends GameState {
   setGameStatus: (status: GameStore['gameStatus']) => void;
   setCombatMode: (mode: GameStore['combatState']['mode']) => void;
   setCombatAttacker: (id: string | null) => void;
-  setCombatTarget: (id: string | null) => void;
+  setCombatTarget: (id: string | null) => {
+    // Maintain backward compatibility for LifeCrystals.tsx and others
+    if (id) {
+      get().addCombatTarget(id);
+    } else {
+      set({ combatState: { ...get().combatState, targetIds: [] } });
+    }
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
+
   addCombatTarget: (id: string) => void;
   removeCombatTarget: (id: string) => void;
   addCombatDefender: (id: string) => void;
@@ -192,13 +201,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     defenderIds: [],
   },
   tieProposedBy: null,
+  decks: {},
   resolutionPending: null,
+
 
 
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
   setOnSendAction: (fn) => set({ onSendAction: fn }),
-  setRemoteAction: (val) => set({ isRemoteAction: val }),
+  setDecks: (decks: Record<string, { main: string[], sign: string[] }>) => set({ decks }),
   setGameStatus: (status) => {
     set({ gameStatus: status });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -207,10 +218,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ combatState: { ...get().combatState, mode } });
     if (!get().isRemoteAction) get().syncBoardState();
   },
-  setCombatAttacker: (id) => {
-    set({ combatState: { ...get().combatState, attackerId: id } });
+  // Add this to the implementation block (e.g. after setCombatAttacker)
+  setCombatTarget: (id) => {
+    if (id) {
+      // Call the internal logic for adding a target
+      const currentTargets = get().combatState.targetIds || [];
+      if (!currentTargets.includes(id)) {
+        set({ combatState: { ...get().combatState, targetIds: [...currentTargets, id] } });
+      }
+    } else {
+      set({ combatState: { ...get().combatState, targetIds: [] } });
+    }
     if (!get().isRemoteAction) get().syncBoardState();
   },
+
   addCombatTarget: (id) => {
     set(state => {
       const currentTargets = state.combatState.targetIds || [];
@@ -321,8 +342,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
 
+  // I will add syncBoardState calls to all mutation functions in a batch update or one by one.
+  // Actually, let's use a pattern to avoid duplication.
+  
+  // DECK PERSISTENCE: Ensure resetGame doesn't clear the 'decks' store
   resetGame: () => {
-    const { players, localPlayerId, remotePlayerId } = get();
+    const { players, localPlayerId, remotePlayerId, decks } = get();
     const newPlayers = { ...players };
     for (const pid of Object.keys(newPlayers)) {
       newPlayers[pid] = {
@@ -342,10 +367,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       chainActive: false,
       firstTurn: true,
       log: ['Игра сброшена и начата заново'],
-      gameStatus: 'playing'
+      gameStatus: 'playing',
+      decks // Keep existing decks
     });
     if (!get().isRemoteAction) get().syncBoardState();
   },
+
 
   initPlayer: (id, name) => set(state => ({
     players: {

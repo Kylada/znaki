@@ -19,7 +19,7 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
 
   const handleCrystalClick = (idx: number) => {
     if (combatState.mode === 'attacking' && combatState.attackerId) {
-      setCombatTarget(playerId);
+      addCombatTarget(playerId);
       return;
     }
 
@@ -28,6 +28,7 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
       setEditValue(player.crystals[idx].currentHealth);
     }
   };
+
 
   return (
     <div className="flex items-center gap-1.5">
@@ -47,7 +48,7 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
           <div key={idx} className="relative group">
             <div
               className={`w-9 h-9 rounded-lg bg-gradient-to-b ${color} border-2 border-white/30 flex flex-col items-center justify-center text-white font-bold cursor-pointer shadow-lg hover:scale-110 transition-transform 
-                ${combatState.targetId === playerId ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}`}
+                ${combatState.targetIds.includes(playerId) ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}`}
               onClick={() => handleCrystalClick(idx)}
               onDragOver={(e) => {
                 e.preventDefault();
