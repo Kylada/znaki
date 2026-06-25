@@ -62,6 +62,7 @@ interface GameStore extends GameState {
   resolveCombat: () => void;
   acceptTie: (playerId: string) => void;
   cancelTie: () => void;
+  setDecks: (decks: Record<string, { main: string[], sign: string[] }>) => void;
 
 
   initPlayer: (id: string, name: string) => void;
@@ -236,9 +237,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   addCombatTarget: (id) => {
+    console.log('Store: addCombatTarget called for id:', id);
     set(state => {
       const currentTargets = state.combatState.targetIds || [];
-      if (currentTargets.includes(id)) return state;
+      if (currentTargets.includes(id)) {
+        console.log('Target already exists');
+        return state;
+      }
+      console.log('Adding target to list. New list:', [...currentTargets, id]);
       return { combatState: { ...state.combatState, targetIds: [...currentTargets, id] } };
     });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -277,6 +283,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       
       // Only the player who did NOT start the resolution needs to confirm.
       if (playerId === state.resolutionPending.initiatorId) {
+        console.log('Player tried to confirm their own resolution proposal');
         return state;
       }
 
@@ -395,7 +402,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   acceptTie: (playerId) => {
-    const { players } = get();
+    const { players, localPlayerId, remotePlayerId } = get();
+    if (!remotePlayerId) return;
+    
     const name = players[playerId]?.name || 'Игрок';
     set({ gameStatus: 'ended' });
     get().addLog(`🤝 ${name} принял предложение о ничьей. Игра окончена!`);
@@ -956,7 +965,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       if (state.chain.length === 0) return state;
       return {
-        resolutionPending: { type: 'link', confirmedBy: [], initiatorId: state.priorityPlayerId || state.currentTurnPlayerId }
+        resolutionPending: { 
+          type: 'link', 
+          confirmedBy: [], 
+          initiatorId: state.priorityPlayerId || state.currentTurnPlayerId 
+        }
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -966,7 +979,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       if (state.chain.length === 0) return state;
       return {
-        resolutionPending: { type: 'all', confirmedBy: [], initiatorId: state.priorityPlayerId || state.currentTurnPlayerId }
+        resolutionPending: { 
+          type: 'all', 
+          confirmedBy: [], 
+          initiatorId: state.priorityPlayerId || state.currentTurnPlayerId 
+        }
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();

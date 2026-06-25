@@ -21,7 +21,7 @@ export const TurnControls: React.FC = () => {
   return (
     <div className="relative bg-gray-900/90 border border-gray-700 rounded-lg px-3 py-2 flex items-center gap-3 flex-wrap">
       {/* Tie proposal overlay/button */}
-      {gameStatus === 'tie-proposed' && (
+      {gameStatus === 'tie-proposed' && tieProposedBy !== localPlayerId && (
         <div className="absolute inset-0 z-[100] bg-black/60 flex items-center justify-center gap-4 rounded-lg backdrop-blur-sm">
           <div className="text-white text-sm font-bold">
             {players[tieProposedBy || '']?.name || 'Оппонент'} предложил ничью
