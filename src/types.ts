@@ -103,6 +103,8 @@ export interface SharedGameState {
   gameStatus: 'playing' | 'conceded' | 'tie-proposed' | 'ended';
 }
 
+export type GameState = SharedGameState;
+
 
 export interface PeerMessage {
   type: 'state-sync' | 'action' | 'chat' | 'deck-import' | 'ready';

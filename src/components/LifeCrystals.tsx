@@ -7,7 +7,7 @@ interface LifeCrystalsProps {
 }
 
 export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent }) => {
-  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard, combatState, setCombatTarget } = useGameStore();
+  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard, combatState, setCombatTarget, addCombatTarget } = useGameStore();
   const player = players[playerId];
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState(6);
