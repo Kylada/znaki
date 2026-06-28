@@ -27,6 +27,7 @@ interface GameStore extends GameState {
     defenderIds: string[];
   };
   tieProposedBy: string | null;
+  decks: Record<string, { main: string[]; sign: string[] }>;
   resolutionPending: {
     type: 'link' | 'all';
     confirmedBy: string[];
