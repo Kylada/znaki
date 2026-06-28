@@ -7,7 +7,17 @@ interface LifeCrystalsProps {
 }
 
 export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent }) => {
-  const { players, setCrystalHealth, destroyCrystal, addCrystal, removeCrystal, unsealCard, getCard, combatState, addCombatTarget, addLog } = useGameStore();
+  // Only read state reactively — all mutations go through getState() to avoid
+  // calling undefined functions from the malformed store interface.
+  const players = useGameStore(s => s.players);
+  const combatState = useGameStore(s => s.combatState);
+  const setCrystalHealth = useGameStore(s => s.setCrystalHealth);
+  const destroyCrystal = useGameStore(s => s.destroyCrystal);
+  const addCrystal = useGameStore(s => s.addCrystal);
+  const removeCrystal = useGameStore(s => s.removeCrystal);
+  const unsealCard = useGameStore(s => s.unsealCard);
+  const getCard = useGameStore(s => s.getCard);
+
   const player = players[playerId];
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState(6);
@@ -18,21 +28,31 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
   const totalHP = activeCrystals.reduce((s, c) => s + c.currentHealth, 0);
 
   const handleCrystalClick = (idx: number) => {
-    if (combatState.mode === 'attacking') {
-      if (!combatState.attackerId) {
-        addLog('⚠️ Сначала выберите карту-атакующего!');
+    const store = useGameStore.getState();
+    const cs = store.combatState;
+
+    if (cs.mode === 'attacking') {
+      if (!cs.attackerId) {
+        store.addLog('⚠️ Сначала выберите карту-атакующего!');
         return;
       }
-      addCombatTarget(playerId);
+      // Toggle the player as a target (target = the playerId, not a specific crystal)
+      if (cs.targetIds.includes(playerId)) {
+        store.removeCombatTarget(playerId);
+      } else {
+        store.addCombatTarget(playerId);
+      }
       return;
     }
 
+    // Normal mode: open edit panel for own crystals
     if (!isOpponent) {
       setEditingIdx(editingIdx === idx ? null : idx);
       setEditValue(player.crystals[idx].currentHealth);
     }
   };
 
+  const isTargeted = combatState.targetIds?.includes(playerId);
 
   return (
     <div className="flex items-center gap-1.5">
@@ -40,19 +60,21 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
         ♥ {totalHP}/{activeCrystals.length * 6}
       </div>
       {player.crystals.map((crystal, idx) => {
-        if (crystal.destroyed) {
-          return null;
-        }
+        if (crystal.destroyed) return null;
 
         const healthPercent = crystal.currentHealth / crystal.maxHealth;
-        const color = healthPercent > 0.6 ? 'from-cyan-400 to-blue-600' : healthPercent > 0.3 ? 'from-yellow-400 to-orange-600' : 'from-red-400 to-red-700';
+        const color = healthPercent > 0.6
+          ? 'from-cyan-400 to-blue-600'
+          : healthPercent > 0.3
+          ? 'from-yellow-400 to-orange-600'
+          : 'from-red-400 to-red-700';
         const sealedCount = crystal.sealedCardIds.length;
 
         return (
           <div key={idx} className="relative group">
             <div
-              className={`w-9 h-9 rounded-lg bg-gradient-to-b ${color} border-2 border-white/30 flex flex-col items-center justify-center text-white font-bold cursor-pointer shadow-lg hover:scale-110 transition-transform 
-                ${combatState.targetIds?.includes(playerId) ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}`}
+              className={`w-9 h-9 rounded-lg bg-gradient-to-b ${color} border-2 border-white/30 flex flex-col items-center justify-center text-white font-bold cursor-pointer shadow-lg hover:scale-110 transition-transform
+                ${isTargeted ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}`}
               onClick={() => handleCrystalClick(idx)}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -76,19 +98,21 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
 
             {/* Sealed card indicator */}
             {sealedCount > 0 && (
-              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-purple-500 text-white text-[8px] px-1 rounded-full font-bold min-w-[14px] text-center leading-[14px]" title={`${sealedCount} запечатанных карт`}>
+              <div
+                className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-purple-500 text-white text-[8px] px-1 rounded-full font-bold min-w-[14px] text-center leading-[14px]"
+                title={`${sealedCount} запечатанных карт`}
+              >
                 {sealedCount}
               </div>
             )}
 
-            {/* Edit popup */}
+            {/* Edit popup (own crystals only, not in combat mode) */}
             {editingIdx === idx && !isOpponent && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setEditingIdx(null)} />
                 <div className="absolute bottom-11 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 rounded-lg p-2 z-40 min-w-[160px] space-y-1.5 shadow-xl">
                   <div className="text-xs text-gray-400 font-bold">Кристалл {idx + 1}</div>
 
-                  {/* Health controls */}
                   <div className="flex items-center gap-1">
                     <button
                       className="bg-red-700 hover:bg-red-600 text-white w-7 h-7 rounded text-sm font-bold"
@@ -120,7 +144,6 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
                     🗑 Удалить
                   </button>
 
-                  {/* Sealed cards list */}
                   {sealedCount > 0 && (
                     <div className="border-t border-gray-700 pt-1 space-y-0.5">
                       <div className="text-[10px] text-gray-500 font-semibold">Запечатанные карты:</div>
@@ -149,7 +172,6 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
         );
       })}
 
-      {/* Add crystal button */}
       {!isOpponent && player.crystals.filter(c => !c.destroyed).length < 6 && (
         <button
           className="w-9 h-9 rounded-lg border-2 border-dashed border-gray-600 flex items-center justify-center text-gray-500 hover:border-cyan-400 hover:text-cyan-400 transition-colors text-lg"

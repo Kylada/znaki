@@ -208,6 +208,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
   setOnSendAction: (fn) => set({ onSendAction: fn }),
+  // FIX: setRemoteAction was declared in interface but never implemented
+  setRemoteAction: (val) => set({ isRemoteAction: val }),
   setDecks: (decks: Record<string, { main: string[], sign: string[] }>) => {
     set({ decks });
     if (!get().isRemoteAction) get().syncDecks();
