@@ -105,6 +105,12 @@ export interface SharedGameState {
 
 export type GameState = SharedGameState;
 
+export interface DeckLists {
+  [playerId: string]: {
+    main: string[];
+    sign: string[];
+  };
+}
 
 export interface PeerMessage {
   type: 'state-sync' | 'action' | 'chat' | 'deck-import' | 'ready';

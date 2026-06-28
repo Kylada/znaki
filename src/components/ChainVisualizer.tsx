@@ -62,27 +62,32 @@ export const ChainVisualizer: React.FC = () => {
               </button>
             </>
           ) : (
-            <div className="flex gap-1 flex-1">
+            <div className="flex flex-col gap-2 flex-1 bg-gray-800 p-2 rounded border border-yellow-600/50">
               {resolutionPending.initiatorId === localPlayerId ? (
-                <div className="flex-1 flex items-center justify-center text-gray-400 text-[10px] italic animate-pulse">
-                  Ожидание подтверждения оппонента...
+                <div className="text-center text-gray-400 text-[10px] italic animate-pulse">
+                  Ваш оппонент должен подтвердить разрешение...
                 </div>
               ) : (
                 <>
-                  <button
-                    className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-xs px-2 py-1.5 rounded font-bold animate-pulse"
-                    onClick={() => confirmResolution(localPlayerId)}
-                    disabled={resolutionPending.confirmedBy.includes(localPlayerId)}
-                  >
-                    {resolutionPending.confirmedBy.includes(localPlayerId) ? '✅ Подтверждено' : 'Подтвердить разрешение'}
-                  </button>
-                  <button
-                    className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1.5 rounded"
-                    onClick={cancelResolution}
-                    title="Отменить подтверждение"
-                  >
-                    ✕
-                  </button>
+                  <div className="text-center text-yellow-400 text-[10px] font-bold">
+                    {resolutionPending.type === 'link' 
+                      ? 'Ваш оппонент предлагает разрешить последнее звено цепи' 
+                      : 'Ваш оппонент предлагает разрешить всю цепь'}
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-xs px-2 py-1.5 rounded font-bold animate-pulse"
+                      onClick={() => confirmResolution(localPlayerId)}
+                    >
+                      Подтвердить
+                    </button>
+                    <button
+                      className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1.5 rounded"
+                      onClick={cancelResolution}
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </>
               )}
             </div>

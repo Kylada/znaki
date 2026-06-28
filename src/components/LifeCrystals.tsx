@@ -20,7 +20,11 @@ export const LifeCrystals: React.FC<LifeCrystalsProps> = ({ playerId, isOpponent
   const handleCrystalClick = (idx: number) => {
     if (combatState.mode === 'attacking') {
       if (!combatState.attackerId) {
-        addLog('⚠️ Сначала выберите карту-атакующего!');
+        // Use a more robust way to call addLog to avoid "g is not a function" errors
+        const store = useGameStore.getState();
+        if (store && typeof store.addLog === 'function') {
+          store.addLog('⚠️ Сначала выберите карту-атакующего!');
+        }
         return;
       }
       addCombatTarget(playerId);

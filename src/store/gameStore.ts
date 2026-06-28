@@ -213,7 +213,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setLocalPlayerId: (id) => set({ localPlayerId: id }),
   setRemotePlayerId: (id) => set({ remotePlayerId: id }),
   setOnSendAction: (fn) => set({ onSendAction: fn }),
-  setDecks: (decks: Record<string, { main: string[], sign: string[] }>) => set({ decks }),
+  setDecks: (decks: Record<string, { main: string[], sign: string[] }>) => {
+    set({ decks });
+    if (!get().isRemoteAction) get().syncDecks();
+  },
   setGameStatus: (status) => {
     set({ gameStatus: status });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -281,13 +284,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       if (!state.resolutionPending) return state;
       
-      // Only the player who did NOT start the resolution needs to confirm.
+      // STRICT CHECK: Proposer cannot confirm their own resolution
       if (playerId === state.resolutionPending.initiatorId) {
-        console.log('Player tried to confirm their own resolution proposal');
         return state;
       }
 
-      // Opponent confirmed! Resolve the chain.
       let { chain, log } = state;
       if (state.resolutionPending.type === 'link') {
         const lastUnresolved = [...chain].reverse().find(l => !l.resolved);
@@ -403,7 +404,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   acceptTie: (playerId) => {
     const { players, localPlayerId, remotePlayerId } = get();
-    if (!remotePlayerId || playerId === localPlayerId) return;
+    // STRICT CHECK: Only a remote player can accept a tie. 
+    // If the person trying to accept is the one who proposed it (localPlayerId), reject.
+    if (!remotePlayerId || playerId === localPlayerId) {
+      console.log('Cannot accept your own tie proposal');
+      return;
+    }
     
     const name = players[playerId]?.name || 'Игрок';
     set({ gameStatus: 'ended' });
@@ -1218,10 +1224,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
           cardTemplates: state.cardTemplates,
           gameStatus: state.gameStatus,
           combatState: state.combatState,
-          decks: state.decks,
           resolutionPending: state.resolutionPending,
           tieProposedBy: state.tieProposedBy,
         }
+      });
+    }
+  },
+
+  syncDecks: () => {
+    const state = get();
+    const onSend = state.onSendAction;
+    if (onSend) {
+      onSend({
+        type: 'decks-sync',
+        data: state.decks,
       });
     }
   },
@@ -1238,10 +1254,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ...state,
         ...stateUpdate,
         combatState,
-        // Prevent overwriting decks if the update doesn't actually contain a valid decks object
-        decks: (stateUpdate.decks && Object.keys(stateUpdate.decks).length > 0) 
-               ? stateUpdate.decks 
-               : state.decks,
+        // Decks are now handled by a separate sync message to avoid reset deletions
       };
     });
   }
