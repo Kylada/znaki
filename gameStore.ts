@@ -103,6 +103,11 @@ interface GameStore extends GameState {
   sealCard: (cardInstanceId: string, crystalIndex: number, playerId: string) => void;
   unsealCard: (cardInstanceId: string) => void;
 
+  /** Stack cardId under/above targetCardId on the field */
+  stackCardOnCard: (cardId: string, targetCardId: string, position: 'above' | 'below') => void;
+  /** Get all cards stacked under a given card (direct children only — top-level call collects recursively) */
+  getStackedCards: (topCardId: string) => CardInstance[];
+
   setAttacked: (cardInstanceId: string, val: boolean) => void;
   setDefended: (cardInstanceId: string, val: boolean) => void;
 
@@ -458,19 +463,91 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
 
-  // FIX #4: resetGame now reloads decks from the persisted `decks` store
-  // so players don't have to manually re-open DeckBuilder after a rematch.
+  // FIX #4: resetGame reloads decks from the persisted `decks` store in a single
+  // atomic set() call — no intermediate syncs, no setTimeout race conditions.
   resetGame: () => {
     const { players, localPlayerId, decks, cardTemplates } = get();
-    const newPlayers = { ...players };
-    for (const pid of Object.keys(newPlayers)) {
+
+    const newPlayers: Record<string, PlayerState> = {};
+
+    for (const pid of Object.keys(players)) {
+      const playerDecks = decks[pid];
+      const crystals = initialCrystals();
+      let cards: CardInstance[] = [];
+
+      if (playerDecks && cardTemplates.length > 0) {
+        // Load main deck
+        const mainCards: CardInstance[] = (playerDecks.main || []).map((tid, i) => {
+          const tmpl = cardTemplates.find(t => t.id === tid);
+          if (!tmpl) return null;
+          return {
+            instanceId: uuidv4(), templateId: tid, template: tmpl,
+            zone: 'mainDeck' as Zone, faceDown: true, exhausted: false,
+            currentHealth: tmpl.health, currentAttack: tmpl.attack,
+            counters: {}, isToken: false, ownerId: pid, controllerId: pid,
+            attackedThisTurn: false, defendedThisTurn: false, order: i
+          } as CardInstance;
+        }).filter(Boolean) as CardInstance[];
+
+        // Shuffle main deck (Fisher-Yates)
+        for (let i = mainCards.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [mainCards[i], mainCards[j]] = [mainCards[j], mainCards[i]];
+        }
+        mainCards.forEach((c, i) => { c.order = i; });
+
+        // Load sign deck
+        const signCards: CardInstance[] = (playerDecks.sign || []).map((tid, i) => {
+          const tmpl = cardTemplates.find(t => t.id === tid);
+          if (!tmpl) return null;
+          return {
+            instanceId: uuidv4(), templateId: tid, template: tmpl,
+            zone: 'signDeck' as Zone, faceDown: true, exhausted: false,
+            currentHealth: tmpl.health, currentAttack: tmpl.attack,
+            counters: {}, isToken: false, ownerId: pid, controllerId: pid,
+            attackedThisTurn: false, defendedThisTurn: false, order: i
+          } as CardInstance;
+        }).filter(Boolean) as CardInstance[];
+
+        // Shuffle sign deck
+        for (let i = signCards.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [signCards[i], signCards[j]] = [signCards[j], signCards[i]];
+        }
+        signCards.forEach((c, i) => { c.order = i; });
+
+        cards = [...mainCards, ...signCards];
+
+        // Draw 6 cards into hand
+        const sorted = [...mainCards].sort((a, b) => a.order - b.order);
+        const hand = sorted.slice(0, 6);
+        hand.forEach((c, i) => {
+          const idx = cards.findIndex(x => x.instanceId === c.instanceId);
+          if (idx !== -1) cards[idx] = { ...cards[idx], zone: 'hand' as Zone, faceDown: false, order: i };
+        });
+
+        // Seal one card under each crystal (from remaining deck top)
+        const remaining = cards
+          .filter(c => c.zone === 'mainDeck')
+          .sort((a, b) => a.order - b.order);
+        const toSeal = remaining.slice(0, crystals.length);
+        toSeal.forEach((c, i) => {
+          const idx = cards.findIndex(x => x.instanceId === c.instanceId);
+          if (idx !== -1) {
+            cards[idx] = { ...cards[idx], zone: 'sealed' as Zone, faceDown: true, sealedUnderCrystal: i };
+          }
+          crystals[i] = { ...crystals[i], sealedCardIds: [c.instanceId] };
+        });
+      }
+
       newPlayers[pid] = {
-        ...newPlayers[pid],
-        cards: [],
-        crystals: initialCrystals(),
+        ...players[pid],
+        cards,
+        crystals,
         secondBreathUsed: false
       };
     }
+
     set({
       players: newPlayers,
       currentTurnPlayerId: localPlayerId,
@@ -485,45 +562,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       gameStatus: 'playing',
       tieProposedBy: null,
       combatState: { mode: 'idle', attackerId: null, targetIds: [], defenderIds: [] },
-      decks // Keep existing decks
+      decks
     });
 
-    // Auto-reload decks for each player who has a saved decklist
-    setTimeout(() => {
-      const state = get();
-      for (const pid of Object.keys(state.players)) {
-        const playerDecks = decks[pid];
-        if (!playerDecks) continue;
-
-        if (playerDecks.main.length > 0) {
-          get().loadDeck(pid, playerDecks.main, false, false);
-        }
-        if (playerDecks.sign.length > 0) {
-          get().loadDeck(pid, playerDecks.sign, true, false);
-        }
-
-        get().shuffleDeck(pid, false);
-        if (playerDecks.sign.length > 0) get().shuffleDeck(pid, true);
-
-        // Draw 6 and seal under crystals
-        for (let i = 0; i < 6; i++) {
-          get().drawCard(pid);
-        }
-
-        const updatedPlayer = get().players[pid];
-        if (updatedPlayer) {
-          const deckCards = updatedPlayer.cards
-            .filter(c => c.zone === 'mainDeck')
-            .sort((a, b) => a.order - b.order);
-          const crystalsCount = updatedPlayer.crystals.filter(c => !c.destroyed).length;
-          for (let i = 0; i < Math.min(crystalsCount, deckCards.length); i++) {
-            get().sealCard(deckCards[i].instanceId, i, pid);
-          }
-        }
-      }
-
-      if (!get().isRemoteAction) get().syncBoardState();
-    }, 100);
+    if (!get().isRemoteAction) get().syncBoardState();
   },
 
 
@@ -637,7 +679,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const found = findCard(state.players, cardInstanceId);
       if (!found) return state;
       const { card, playerId } = found;
-      const player = state.players[playerId];
+
+      const FIELD_ZONES: Zone[] = ['monsterZone', 'spellArtifactZone', 'signZone'];
+      const leavingField = FIELD_ZONES.includes(card.zone) && !FIELD_ZONES.includes(toZone);
+
+      // Collect all cards stacked under this card (recursively)
+      const collectStacked = (topId: string, players: Record<string, PlayerState>): CardInstance[] => {
+        const result: CardInstance[] = [];
+        for (const p of Object.values(players)) {
+          for (const c of p.cards) {
+            if (c.fieldStackedUnder === topId) {
+              result.push(c);
+              result.push(...collectStacked(c.instanceId, players));
+            }
+          }
+        }
+        return result;
+      };
+
+      // Build new players state
+      let newPlayers = { ...state.players };
+      const logEntries: string[] = [];
+
+      // Move the primary card, clearing seal/stack metadata
+      const player = newPlayers[playerId];
       const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
       let crystals = player.crystals;
       if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
@@ -647,27 +712,97 @@ export const useGameStore = create<GameStore>((set, get) => ({
             : cr
         );
       }
-      return {
-        players: {
-          ...state.players,
-          [playerId]: {
-            ...player,
-            crystals,
-            cards: player.cards.map(c =>
-              c.instanceId === cardInstanceId
-                ? {
-                  ...c,
-                  zone: toZone,
-                  faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
-                  order: maxOrder + 1,
-                  exhausted: toZone === 'signZone' ? c.exhausted : false,
-                  sealedUnderCrystal: undefined
-                }
-                : c
-            )
+
+      // Determine actual destination — if leaving the field and control was transferred,
+      // send back to the owner's zone instead (graveyard → owner, etc.)
+      const resolveDestination = (c: CardInstance, zone: Zone): { targetPlayerId: string; targetZone: Zone } => {
+        if (leavingField && c.ownerId !== c.controllerId) {
+          // Control-transferred card: return to owner's graveyard
+          return { targetPlayerId: c.ownerId, targetZone: 'graveyard' };
+        }
+        return { targetPlayerId: playerId, targetZone: zone };
+      };
+
+      newPlayers[playerId] = {
+        ...player,
+        crystals,
+        cards: player.cards.map(c =>
+          c.instanceId === cardInstanceId
+            ? {
+              ...c,
+              zone: toZone,
+              faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
+              order: maxOrder + 1,
+              exhausted: toZone === 'signZone' ? c.exhausted : false,
+              sealedUnderCrystal: undefined,
+              fieldStackedUnder: undefined,
+            }
+            : c
+        )
+      };
+      logEntries.push(`${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`);
+
+      // If leaving field, cascade all stacked cards to graveyard (or owner's graveyard)
+      if (leavingField) {
+        const stacked = collectStacked(cardInstanceId, state.players);
+        for (const sc of stacked) {
+          const scFoundPlayerId = Object.keys(state.players).find(pid =>
+            state.players[pid].cards.some(c => c.instanceId === sc.instanceId)
+          )!;
+          const { targetPlayerId, targetZone } = resolveDestination(sc, 'graveyard');
+
+          if (scFoundPlayerId === targetPlayerId) {
+            // Same player — just update the card in place
+            const scPlayer = newPlayers[targetPlayerId];
+            const scMaxOrder = Math.max(0, ...scPlayer.cards.filter(c => c.zone === targetZone).map(c => c.order));
+            newPlayers[targetPlayerId] = {
+              ...scPlayer,
+              cards: scPlayer.cards.map(c =>
+                c.instanceId === sc.instanceId
+                  ? { ...c, zone: targetZone, faceDown: false, fieldStackedUnder: undefined, exhausted: false, order: scMaxOrder + 1 }
+                  : c
+              )
+            };
+          } else {
+            // Different player (control returned to owner)
+            const fromP = newPlayers[scFoundPlayerId];
+            const toP = newPlayers[targetPlayerId];
+            const scMaxOrder = Math.max(0, ...toP.cards.filter(c => c.zone === targetZone).map(c => c.order));
+            newPlayers[scFoundPlayerId] = {
+              ...fromP,
+              cards: fromP.cards.filter(c => c.instanceId !== sc.instanceId)
+            };
+            newPlayers[targetPlayerId] = {
+              ...toP,
+              cards: [...toP.cards, {
+                ...sc,
+                zone: targetZone,
+                controllerId: sc.ownerId,
+                faceDown: false,
+                fieldStackedUnder: undefined,
+                exhausted: false,
+                order: scMaxOrder + 1
+              }]
+            };
           }
-        },
-        log: [...state.log, `${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`]
+
+          if (sc.isToken) {
+            // Tokens vanish instead of going to graveyard
+            const tp = newPlayers[scFoundPlayerId === targetPlayerId ? scFoundPlayerId : scFoundPlayerId];
+            newPlayers[scFoundPlayerId] = {
+              ...newPlayers[scFoundPlayerId],
+              cards: newPlayers[scFoundPlayerId].cards.filter(c => c.instanceId !== sc.instanceId)
+            };
+            logEntries.push(`Токен исчезает: ${sc.template.name}`);
+          } else {
+            logEntries.push(`↳ ${sc.template.name || 'Карта'} → Кладбище`);
+          }
+        }
+      }
+
+      return {
+        players: newPlayers,
+        log: [...state.log, ...logEntries]
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -1074,6 +1209,190 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const nextIdx = (currentIdx + 1) % playerIds.length;
     return { priorityPlayerId: playerIds[nextIdx] };
   }),
+
+  getStackedCards: (topCardId) => {
+    const players = get().players;
+    const result: CardInstance[] = [];
+    const collect = (parentId: string) => {
+      for (const p of Object.values(players)) {
+        for (const c of p.cards) {
+          if (c.fieldStackedUnder === parentId) {
+            result.push(c);
+            collect(c.instanceId);
+          }
+        }
+      }
+    };
+    collect(topCardId);
+    return result;
+  },
+
+  stackCardOnCard: (cardId, targetCardId, position) => {
+    set(state => {
+      // Find both cards
+      const foundCard = findCard(state.players, cardId);
+      const foundTarget = findCard(state.players, targetCardId);
+      if (!foundCard || !foundTarget) return state;
+
+      const { card: movingCard, playerId: movingPlayerId } = foundCard;
+      const { card: targetCard } = foundTarget;
+
+      // Only works on field zones
+      const FIELD_ZONES: Zone[] = ['monsterZone', 'spellArtifactZone', 'signZone'];
+      if (!FIELD_ZONES.includes(targetCard.zone)) return state;
+
+      let newPlayers = { ...state.players };
+      const logEntries: string[] = [];
+
+      // Collect everything that comes with the moving card (cards stacked under it)
+      const collectStacked = (topId: string): CardInstance[] => {
+        const result: CardInstance[] = [];
+        for (const p of Object.values(state.players)) {
+          for (const c of p.cards) {
+            if (c.fieldStackedUnder === topId) {
+              result.push(c);
+              result.push(...collectStacked(c.instanceId));
+            }
+          }
+        }
+        return result;
+      };
+
+      if (position === 'above') {
+        // card goes ON TOP of target — target + everything under target goes under card
+        // Find what's currently the "real top" of the target stack
+        // (target might itself be stacked under something — find the stack root)
+        const getStackRoot = (cardInst: CardInstance): CardInstance => {
+          if (!cardInst.fieldStackedUnder) return cardInst;
+          const parent = get().getCard(cardInst.fieldStackedUnder);
+          return parent ? getStackRoot(parent) : cardInst;
+        };
+        const targetRoot = getStackRoot(targetCard);
+        
+        // Collect everything under the target root
+        const targetStacked = collectStacked(targetRoot.instanceId);
+
+        // Move the incoming card (and anything under it) to same zone as target, with fieldStackedUnder cleared
+        // Then set all of target's stack to be under the incoming card
+        const incomingStacked = collectStacked(cardId);
+
+        // First: move incoming card to target's zone (if different player, transfer)
+        if (movingPlayerId !== foundTarget.playerId) {
+          // Cross-player move
+          const fromP = newPlayers[movingPlayerId];
+          const toP = newPlayers[foundTarget.playerId];
+          const maxOrd = Math.max(0, ...toP.cards.filter(c => c.zone === targetCard.zone).map(c => c.order));
+          newPlayers[movingPlayerId] = { ...fromP, cards: fromP.cards.filter(c => c.instanceId !== cardId) };
+          newPlayers[foundTarget.playerId] = {
+            ...toP,
+            cards: [...toP.cards, { ...movingCard, zone: targetCard.zone, controllerId: foundTarget.playerId, fieldStackedUnder: undefined, order: maxOrd + 1 }]
+          };
+        } else {
+          newPlayers[movingPlayerId] = {
+            ...newPlayers[movingPlayerId],
+            cards: newPlayers[movingPlayerId].cards.map(c =>
+              c.instanceId === cardId
+                ? { ...c, zone: targetCard.zone, fieldStackedUnder: undefined }
+                : c
+            )
+          };
+        }
+
+        // Stack the target root (and all its stacked cards) under the incoming card
+        // Update targetRoot to have fieldStackedUnder = cardId
+        for (const pid of Object.keys(newPlayers)) {
+          newPlayers[pid] = {
+            ...newPlayers[pid],
+            cards: newPlayers[pid].cards.map(c =>
+              c.instanceId === targetRoot.instanceId
+                ? { ...c, fieldStackedUnder: cardId }
+                : c
+            )
+          };
+        }
+
+        logEntries.push(`${movingCard.template.name} помещена НАД ${targetRoot.template.name}`);
+        if (targetStacked.length > 0) {
+          logEntries.push(`  (${targetStacked.length + 1} карт теперь под ${movingCard.template.name})`);
+        }
+
+      } else {
+        // position === 'below': card goes UNDER target
+        // Find the actual top card of the target's stack
+        const getStackTop = (): CardInstance => {
+          // If target has fieldStackedUnder, we're clicking a stacked card — find who's on top
+          // Walk up to find the root
+          if (!targetCard.fieldStackedUnder) return targetCard;
+          const parent = get().getCard(targetCard.fieldStackedUnder);
+          if (!parent) return targetCard;
+          // Keep going up
+          let cur = parent;
+          while (cur.fieldStackedUnder) {
+            const p = get().getCard(cur.fieldStackedUnder);
+            if (!p) break;
+            cur = p;
+          }
+          return cur;
+        };
+        const stackTop = getStackTop();
+
+        // Move incoming card (and its stack) under the stack top
+        if (movingPlayerId !== foundTarget.playerId) {
+          const fromP = newPlayers[movingPlayerId];
+          const toP = newPlayers[foundTarget.playerId];
+          const maxOrd = Math.max(0, ...toP.cards.filter(c => c.zone === stackTop.zone).map(c => c.order));
+          newPlayers[movingPlayerId] = { ...fromP, cards: fromP.cards.filter(c => c.instanceId !== cardId) };
+          newPlayers[foundTarget.playerId] = {
+            ...toP,
+            cards: [...toP.cards, { ...movingCard, zone: stackTop.zone, controllerId: foundTarget.playerId, fieldStackedUnder: stackTop.instanceId, order: maxOrd + 1 }]
+          };
+        } else {
+          newPlayers[movingPlayerId] = {
+            ...newPlayers[movingPlayerId],
+            cards: newPlayers[movingPlayerId].cards.map(c =>
+              c.instanceId === cardId
+                ? { ...c, zone: stackTop.zone, fieldStackedUnder: stackTop.instanceId }
+                : c
+            )
+          };
+        }
+
+        // Also move anything that was stacked under the incoming card — it comes along, staying under it
+        const incomingStacked = collectStacked(cardId);
+        for (const sc of incomingStacked) {
+          const scPid = Object.keys(newPlayers).find(pid =>
+            newPlayers[pid].cards.some(c => c.instanceId === sc.instanceId)
+          );
+          if (!scPid) continue;
+          if (scPid !== foundTarget.playerId) {
+            const fromP = newPlayers[scPid];
+            const toP = newPlayers[foundTarget.playerId];
+            const maxOrd = Math.max(0, ...toP.cards.filter(c => c.zone === stackTop.zone).map(c => c.order));
+            newPlayers[scPid] = { ...fromP, cards: fromP.cards.filter(c => c.instanceId !== sc.instanceId) };
+            newPlayers[foundTarget.playerId] = {
+              ...toP,
+              cards: [...toP.cards, { ...sc, zone: stackTop.zone, controllerId: foundTarget.playerId, order: maxOrd + 1 }]
+            };
+          } else {
+            newPlayers[scPid] = {
+              ...newPlayers[scPid],
+              cards: newPlayers[scPid].cards.map(c =>
+                c.instanceId === sc.instanceId ? { ...c, zone: stackTop.zone } : c
+              )
+            };
+          }
+        }
+
+        logEntries.push(`${movingCard.template.name} помещена ПОД ${stackTop.template.name}`);
+      }
+
+      return {
+        players: newPlayers,
+        log: [...state.log, ...logEntries]
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
   sealCard: (cardInstanceId, crystalIndex, playerId) => {
     set(state => {
