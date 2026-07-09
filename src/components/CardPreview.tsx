@@ -23,16 +23,16 @@ const elementIcons: Record<string, string> = {
 
 export const CardPreview: React.FC = () => {
   const { hoveredCardId, selectedCardId, getCard } = useGameStore();
-  const cardId = hoveredCardId || selectedCardId;
+  const cardId = selectedCardId || hoveredCardId;
   if (!cardId) return (
-    <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
+    <div className="h-full overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
       Наведите на карту для предпросмотра
     </div>
   );
 
   const card = getCard(cardId);
   if (!card || (card.faceDown && card.ownerId !== useGameStore.getState().localPlayerId)) return (
-    <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
+    <div className="h-full overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
       Карта скрыта
     </div>
   );
@@ -56,7 +56,7 @@ export const CardPreview: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-900 border-2 rounded-lg overflow-hidden" style={{ borderColor }}>
+    <div className="h-full max-h-full overflow-y-auto bg-gray-900 border-2 rounded-lg scrollbar-thin scrollbar-thumb-gray-700" style={{ borderColor }}>
       {/* Header */}
       <div className="p-2 flex justify-between items-center" style={{ background: borderColor }}>
         <span className="font-bold text-black text-sm">{card.template.name}</span>
@@ -108,7 +108,7 @@ export const CardPreview: React.FC = () => {
 
         {/* Effect */}
         {card.template.effectText && (
-          <div className="bg-gray-800 rounded p-2 text-xs text-gray-200 leading-relaxed">
+          <div className="bg-gray-800 rounded p-2 text-xs text-gray-200 leading-relaxed whitespace-pre-wrap break-words max-h-[180px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600">
             {card.template.effectText}
           </div>
         )}

@@ -14,6 +14,7 @@ interface GameStore extends GameState {
   cardTemplates: CardTemplate[];
   selectedCardId: string | null;
   hoveredCardId: string | null;
+  draggingCardId: string | null;
   contextMenuCardId: string | null;
   contextMenuPosition: { x: number; y: number } | null;
   chatMessages: { sender: string; text: string }[];
@@ -71,6 +72,9 @@ interface GameStore extends GameState {
   flipCard: (cardInstanceId: string) => void;
   selectCard: (cardInstanceId: string | null) => void;
   hoverCard: (cardInstanceId: string | null) => void;
+  setDraggingCardId: (cardInstanceId: string | null) => void;
+  stackCardOnCard: (cardId: string, targetCardId: string, position: 'above' | 'below') => void;
+  getStackedCards: (cardInstanceId: string) => CardInstance[];
 
   setCrystalHealth: (playerId: string, crystalIndex: number, health: number) => void;
   destroyCrystal: (playerId: string, crystalIndex: number) => void;
@@ -178,6 +182,86 @@ function unsealCardsFromCrystal(cards: CardInstance[], sealedCardIds: string[]):
   });
 }
 
+const FIELD_ZONES: Zone[] = ['monsterZone', 'spellArtifactZone', 'signZone'];
+const isFieldZone = (zone: Zone) => FIELD_ZONES.includes(zone);
+
+function getDirectStackChildren(players: Record<string, PlayerState>, parentId: string): { card: CardInstance; playerId: string }[] {
+  return Object.entries(players)
+    .flatMap(([playerId, player]) =>
+      player.cards
+        .filter(card => card.fieldStackedUnder === parentId)
+        .map(card => ({ card, playerId }))
+    )
+    .sort((a, b) => (a.card.stackOrder ?? a.card.order) - (b.card.stackOrder ?? b.card.order));
+}
+
+function collectStackEntries(players: Record<string, PlayerState>, parentId: string): { card: CardInstance; playerId: string }[] {
+  const result: { card: CardInstance; playerId: string }[] = [];
+  const visit = (currentId: string) => {
+    for (const entry of getDirectStackChildren(players, currentId)) {
+      result.push(entry);
+      visit(entry.card.instanceId);
+    }
+  };
+  visit(parentId);
+  return result;
+}
+
+function collectStackSubtreeIds(players: Record<string, PlayerState>, rootId: string): string[] {
+  return [rootId, ...collectStackEntries(players, rootId).map(entry => entry.card.instanceId)];
+}
+
+function rebuildPlayersWithCards(
+  players: Record<string, PlayerState>,
+  transform: (card: CardInstance, holderId: string) => { playerId: string; card: CardInstance } | null
+): Record<string, PlayerState> {
+  const rebuilt = Object.fromEntries(
+    Object.entries(players).map(([playerId, player]) => [playerId, { ...player, cards: [] as CardInstance[] }])
+  ) as Record<string, PlayerState>;
+
+  for (const [holderId, player] of Object.entries(players)) {
+    for (const originalCard of player.cards) {
+      const transformed = transform({ ...originalCard }, holderId);
+      if (!transformed) continue;
+      rebuilt[transformed.playerId].cards.push(transformed.card);
+    }
+  }
+
+  return rebuilt;
+}
+
+function getNextZoneOrder(
+  players: Record<string, PlayerState>,
+  playerId: string,
+  zone: Zone,
+  excludeIds: Set<string> = new Set()
+): number {
+  const player = players[playerId];
+  if (!player) return 1;
+  const maxOrder = Math.max(
+    0,
+    ...player.cards
+      .filter(card => card.zone === zone && !excludeIds.has(card.instanceId))
+      .map(card => card.order)
+  );
+  return maxOrder + 1;
+}
+
+function getNextStackOrder(
+  players: Record<string, PlayerState>,
+  parentId: string,
+  excludeIds: Set<string> = new Set()
+): number {
+  const maxOrder = Math.max(
+    0,
+    ...Object.values(players)
+      .flatMap(player => player.cards)
+      .filter(card => card.fieldStackedUnder === parentId && !excludeIds.has(card.instanceId))
+      .map(card => card.stackOrder ?? card.order)
+  );
+  return maxOrder + 1;
+}
+
 const zoneLabel = (z: Zone) => {
   const names: Record<Zone, string> = {
     hand: 'Руку', monsterZone: 'Зону Монстров', spellArtifactZone: 'Зону Заклятий',
@@ -202,6 +286,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   cardTemplates: [],
   selectedCardId: null,
   hoveredCardId: null,
+  draggingCardId: null,
   contextMenuCardId: null,
   contextMenuPosition: null,
   chatMessages: [],
@@ -348,7 +433,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let currentLog = [`⚔️ ${attackerCard.template.name} атакует с силой ${attackValue}!`];
 
     set(state => {
-      const newPlayers = { ...state.players };
+      let newPlayers = { ...state.players };
       
       state.combatState.targetIds.forEach(targetId => {
         const targetCard = get().getCard(targetId);
@@ -368,11 +453,73 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
             if (newHealth <= 0) {
               currentLog.push(`💥 ${targetCard.template.name} уничтожен!`);
-              // Move to graveyard
-              const updatedCards = p.cards.map(c =>
-                c.instanceId === targetId ? { ...c, zone: 'graveyard' as Zone, currentHealth: 0 } : c
-              );
-              newPlayers[holderId] = { ...p, cards: updatedCards };
+
+              const subtreeIds = new Set(collectStackSubtreeIds(newPlayers, targetId));
+              const descendantEntries = collectStackEntries(newPlayers, targetId);
+              const descendantIds = new Set(descendantEntries.map(entry => entry.card.instanceId));
+              const primaryGraveyardHolderId = card.ownerId !== card.controllerId ? card.ownerId : holderId;
+              const primaryOrder = getNextZoneOrder(newPlayers, primaryGraveyardHolderId, 'graveyard', subtreeIds);
+
+              const graveyardCounters = new Map<string, number>();
+              for (const entry of descendantEntries) {
+                const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
+                if (!graveyardCounters.has(graveyardHolderId)) {
+                  graveyardCounters.set(
+                    graveyardHolderId,
+                    getNextZoneOrder(newPlayers, graveyardHolderId, 'graveyard', subtreeIds)
+                  );
+                }
+              }
+
+              const descendantGraveyardOrder = new Map<string, number>();
+              for (const entry of descendantEntries) {
+                const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
+                const nextOrder = graveyardCounters.get(graveyardHolderId) ?? 1;
+                descendantGraveyardOrder.set(entry.card.instanceId, nextOrder);
+                graveyardCounters.set(graveyardHolderId, nextOrder + 1);
+              }
+
+              newPlayers = rebuildPlayersWithCards(newPlayers, (currentCard, currentHolderId) => {
+                if (currentCard.instanceId === targetId) {
+                  return {
+                    playerId: primaryGraveyardHolderId,
+                    card: {
+                      ...currentCard,
+                      zone: 'graveyard',
+                      controllerId: primaryGraveyardHolderId,
+                      faceDown: false,
+                      currentHealth: 0,
+                      exhausted: false,
+                      fieldStackedUnder: undefined,
+                      stackOrder: undefined,
+                      order: primaryOrder,
+                    },
+                  };
+                }
+
+                if (descendantIds.has(currentCard.instanceId)) {
+                  const graveyardHolderId = currentCard.ownerId !== currentCard.controllerId ? currentCard.ownerId : currentHolderId;
+                  return {
+                    playerId: graveyardHolderId,
+                    card: {
+                      ...currentCard,
+                      zone: 'graveyard',
+                      controllerId: graveyardHolderId,
+                      faceDown: false,
+                      exhausted: false,
+                      fieldStackedUnder: undefined,
+                      stackOrder: undefined,
+                      order: descendantGraveyardOrder.get(currentCard.instanceId) ?? 1,
+                    },
+                  };
+                }
+
+                return { playerId: currentHolderId, card: currentCard };
+              });
+
+              if (descendantIds.size > 0) {
+                currentLog.push(`↳ ${descendantIds.size} прикрепл. карт(ы) отправлены на Кладбище`);
+              }
             } else {
               currentLog.push(`🩸 ${targetCard.template.name} получает ${attackValue} урона (Осталось: ${newHealth})`);
               const updatedCards = p.cards.map(c =>
@@ -723,38 +870,119 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(state => {
       const found = findCard(state.players, cardInstanceId);
       if (!found) return state;
-      const { card, playerId } = found;
-      const player = state.players[playerId];
-      const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
-      let crystals = player.crystals;
+
+      const { card, playerId: holderId } = found;
+      const subtreeIds = new Set(collectStackSubtreeIds(state.players, cardInstanceId));
+      const descendantEntries = collectStackEntries(state.players, cardInstanceId);
+      const descendantIds = new Set(descendantEntries.map(entry => entry.card.instanceId));
+      const leavingField = isFieldZone(card.zone) && !isFieldZone(toZone);
+      const movingToField = isFieldZone(toZone);
+      const returningToOwner = leavingField && card.ownerId !== card.controllerId;
+      const targetHolderId = returningToOwner ? card.ownerId : holderId;
+
+      const sourcePlayer = state.players[holderId];
+      let sourceCrystals = sourcePlayer.crystals;
       if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
-        crystals = crystals.map((cr, i) =>
-          i === card.sealedUnderCrystal
-            ? { ...cr, sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId) }
-            : cr
+        sourceCrystals = sourceCrystals.map((crystal, index) =>
+          index === card.sealedUnderCrystal
+            ? { ...crystal, sealedCardIds: crystal.sealedCardIds.filter(id => id !== cardInstanceId) }
+            : crystal
         );
       }
-      return {
-        players: {
-          ...state.players,
-          [playerId]: {
-            ...player,
-            crystals,
-            cards: player.cards.map(c =>
-              c.instanceId === cardInstanceId
-                ? {
-                  ...c,
-                  zone: toZone,
-                  faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
-                  order: maxOrder + 1,
-                  exhausted: toZone === 'signZone' ? c.exhausted : false,
-                  sealedUnderCrystal: undefined
-                }
-                : c
-            )
+
+      const playersForMove: Record<string, PlayerState> = {
+        ...state.players,
+        [holderId]: { ...sourcePlayer, crystals: sourceCrystals },
+      };
+
+      const primaryOrder = getNextZoneOrder(playersForMove, targetHolderId, toZone, subtreeIds);
+      const graveyardCounters = new Map<string, number>();
+      for (const entry of descendantEntries) {
+        const graveyardHolderId = leavingField && entry.card.ownerId !== entry.card.controllerId
+          ? entry.card.ownerId
+          : entry.playerId;
+        if (!graveyardCounters.has(graveyardHolderId)) {
+          graveyardCounters.set(
+            graveyardHolderId,
+            getNextZoneOrder(playersForMove, graveyardHolderId, 'graveyard', subtreeIds)
+          );
+        }
+      }
+
+      const descendantGraveyardOrder = new Map<string, number>();
+      for (const entry of descendantEntries) {
+        const graveyardHolderId = leavingField && entry.card.ownerId !== entry.card.controllerId
+          ? entry.card.ownerId
+          : entry.playerId;
+        const nextOrder = graveyardCounters.get(graveyardHolderId) ?? 1;
+        descendantGraveyardOrder.set(entry.card.instanceId, nextOrder);
+        graveyardCounters.set(graveyardHolderId, nextOrder + 1);
+      }
+
+      const nextPlayers = rebuildPlayersWithCards(playersForMove, (currentCard, currentHolderId) => {
+        if (currentCard.instanceId === cardInstanceId) {
+          return {
+            playerId: targetHolderId,
+            card: {
+              ...currentCard,
+              zone: toZone,
+              controllerId: targetHolderId,
+              faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
+              order: primaryOrder,
+              exhausted: toZone === 'signZone' ? currentCard.exhausted : false,
+              sealedUnderCrystal: undefined,
+              fieldStackedUnder: undefined,
+              stackOrder: undefined,
+            },
+          };
+        }
+
+        if (descendantIds.has(currentCard.instanceId)) {
+          if (movingToField) {
+            return {
+              playerId: targetHolderId,
+              card: {
+                ...currentCard,
+                zone: toZone,
+                controllerId: targetHolderId,
+                exhausted: toZone === 'signZone' ? currentCard.exhausted : false,
+                sealedUnderCrystal: undefined,
+              },
+            };
           }
-        },
-        log: [...state.log, `${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`]
+
+          const graveyardHolderId = leavingField && currentCard.ownerId !== currentCard.controllerId
+            ? currentCard.ownerId
+            : currentHolderId;
+
+          return {
+            playerId: graveyardHolderId,
+            card: {
+              ...currentCard,
+              zone: 'graveyard',
+              controllerId: graveyardHolderId,
+              faceDown: false,
+              order: descendantGraveyardOrder.get(currentCard.instanceId) ?? 1,
+              exhausted: false,
+              sealedUnderCrystal: undefined,
+              fieldStackedUnder: undefined,
+              stackOrder: undefined,
+            },
+          };
+        }
+
+        return { playerId: currentHolderId, card: currentCard };
+      });
+
+      const log = [`${state.players[targetHolderId]?.name || sourcePlayer.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`];
+      if (leavingField && descendantIds.size > 0) {
+        log.push(`↳ ${descendantIds.size} прикрепл. карт(ы) отправлены на Кладбище`);
+      }
+
+      return {
+        players: nextPlayers,
+        draggingCardId: null,
+        log: [...state.log, ...log],
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -830,6 +1058,76 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   selectCard: (cardInstanceId) => set({ selectedCardId: cardInstanceId }),
   hoverCard: (cardInstanceId) => set({ hoveredCardId: cardInstanceId }),
+  setDraggingCardId: (cardInstanceId) => set({ draggingCardId: cardInstanceId }),
+
+  getStackedCards: (cardInstanceId) =>
+    getDirectStackChildren(get().players, cardInstanceId).map(entry => entry.card),
+
+  stackCardOnCard: (cardId, targetCardId, position) => {
+    set(state => {
+      if (cardId === targetCardId) return state;
+
+      const movingFound = findCard(state.players, cardId);
+      const targetFound = findCard(state.players, targetCardId);
+      if (!movingFound || !targetFound) return state;
+      if (!isFieldZone(targetFound.card.zone)) return state;
+
+      const movingSubtreeIds = new Set(collectStackSubtreeIds(state.players, cardId));
+      if (movingSubtreeIds.has(targetCardId)) return state;
+
+      const targetHolderId = targetFound.playerId;
+      let nextPlayers = rebuildPlayersWithCards(state.players, (card, holderId) => {
+        if (movingSubtreeIds.has(card.instanceId)) {
+          return {
+            playerId: targetHolderId,
+            card: {
+              ...card,
+              controllerId: targetHolderId,
+              zone: targetFound.card.zone,
+              sealedUnderCrystal: undefined,
+            },
+          };
+        }
+
+        return { playerId: holderId, card };
+      });
+
+      if (position === 'above') {
+        const targetChildOrder = getNextStackOrder(nextPlayers, cardId, new Set([targetCardId]));
+        nextPlayers = updateCard(nextPlayers, cardId, c => ({
+          ...c,
+          fieldStackedUnder: targetFound.card.fieldStackedUnder,
+          stackOrder: targetFound.card.fieldStackedUnder ? targetFound.card.stackOrder : undefined,
+          order: targetFound.card.order,
+        }));
+        nextPlayers = updateCard(nextPlayers, targetCardId, c => ({
+          ...c,
+          fieldStackedUnder: cardId,
+          stackOrder: targetChildOrder,
+        }));
+      } else {
+        const childOrder = getNextStackOrder(nextPlayers, targetCardId, new Set([cardId]));
+        nextPlayers = updateCard(nextPlayers, cardId, c => ({
+          ...c,
+          fieldStackedUnder: targetCardId,
+          stackOrder: childOrder,
+          order: targetFound.card.order,
+        }));
+      }
+
+      return {
+        players: nextPlayers,
+        draggingCardId: null,
+        log: [
+          ...state.log,
+          position === 'above'
+            ? `${movingFound.card.template.name || 'Карта'} помещена НАД ${targetFound.card.template.name || 'картой'}`
+            : `${movingFound.card.template.name || 'Карта'} помещена ПОД ${targetFound.card.template.name || 'картой'}`,
+        ],
+      };
+    });
+    if (!get().isRemoteAction) get().syncBoardState();
+  },
 
   setCrystalHealth: (playerId, crystalIndex, health) => {
     set(state => {
@@ -1171,27 +1469,103 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   sealCard: (cardInstanceId, crystalIndex, playerId) => {
     set(state => {
-      const player = state.players[playerId];
-      if (!player || !player.crystals[crystalIndex] || player.crystals[crystalIndex].destroyed) return state;
-      const crystals = player.crystals.map((cr, i) =>
-        i === crystalIndex
-          ? { ...cr, sealedCardIds: [...cr.sealedCardIds, cardInstanceId] }
-          : cr
+      const targetPlayer = state.players[playerId];
+      const found = findCard(state.players, cardInstanceId);
+      if (!targetPlayer || !found || !targetPlayer.crystals[crystalIndex] || targetPlayer.crystals[crystalIndex].destroyed) {
+        return state;
+      }
+
+      const { card, playerId: holderId } = found;
+      const subtreeIds = new Set(collectStackSubtreeIds(state.players, cardInstanceId));
+      const descendantEntries = collectStackEntries(state.players, cardInstanceId);
+      const descendantIds = new Set(descendantEntries.map(entry => entry.card.instanceId));
+
+      let sourceCrystals = state.players[holderId].crystals;
+      if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
+        sourceCrystals = sourceCrystals.map((crystal, index) =>
+          index === card.sealedUnderCrystal
+            ? { ...crystal, sealedCardIds: crystal.sealedCardIds.filter(id => id !== cardInstanceId) }
+            : crystal
+        );
+      }
+
+      const targetCrystals = targetPlayer.crystals.map((crystal, index) =>
+        index === crystalIndex
+          ? { ...crystal, sealedCardIds: [...crystal.sealedCardIds, cardInstanceId] }
+          : crystal
       );
+
+      const playersForSeal: Record<string, PlayerState> = {
+        ...state.players,
+        [holderId]: { ...state.players[holderId], crystals: sourceCrystals },
+        [playerId]: { ...targetPlayer, crystals: targetCrystals },
+      };
+
+      const graveyardCounters = new Map<string, number>();
+      for (const entry of descendantEntries) {
+        const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
+        if (!graveyardCounters.has(graveyardHolderId)) {
+          graveyardCounters.set(
+            graveyardHolderId,
+            getNextZoneOrder(playersForSeal, graveyardHolderId, 'graveyard', subtreeIds)
+          );
+        }
+      }
+
+      const descendantGraveyardOrder = new Map<string, number>();
+      for (const entry of descendantEntries) {
+        const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
+        const nextOrder = graveyardCounters.get(graveyardHolderId) ?? 1;
+        descendantGraveyardOrder.set(entry.card.instanceId, nextOrder);
+        graveyardCounters.set(graveyardHolderId, nextOrder + 1);
+      }
+
+      const nextPlayers = rebuildPlayersWithCards(playersForSeal, (currentCard, currentHolderId) => {
+        if (currentCard.instanceId === cardInstanceId) {
+          return {
+            playerId,
+            card: {
+              ...currentCard,
+              zone: 'sealed',
+              controllerId: playerId,
+              faceDown: true,
+              sealedUnderCrystal: crystalIndex,
+              exhausted: false,
+              fieldStackedUnder: undefined,
+              stackOrder: undefined,
+            },
+          };
+        }
+
+        if (descendantIds.has(currentCard.instanceId)) {
+          const graveyardHolderId = currentCard.ownerId !== currentCard.controllerId ? currentCard.ownerId : currentHolderId;
+          return {
+            playerId: graveyardHolderId,
+            card: {
+              ...currentCard,
+              zone: 'graveyard',
+              controllerId: graveyardHolderId,
+              faceDown: false,
+              order: descendantGraveyardOrder.get(currentCard.instanceId) ?? 1,
+              exhausted: false,
+              sealedUnderCrystal: undefined,
+              fieldStackedUnder: undefined,
+              stackOrder: undefined,
+            },
+          };
+        }
+
+        return { playerId: currentHolderId, card: currentCard };
+      });
+
       return {
-        players: {
-          ...state.players,
-          [playerId]: {
-            ...player,
-            crystals,
-            cards: player.cards.map(c =>
-              c.instanceId === cardInstanceId
-                ? { ...c, zone: 'sealed' as Zone, faceDown: true, sealedUnderCrystal: crystalIndex }
-                : c
-            )
-          }
-        },
-        log: [...state.log, `Карта запечатана под Кристалл ${crystalIndex + 1}`]
+        players: nextPlayers,
+        draggingCardId: null,
+        log: [
+          ...state.log,
+          `Карта запечатана под Кристалл ${crystalIndex + 1}`,
+          ...(descendantIds.size > 0 ? [`↳ ${descendantIds.size} прикрепл. карт(ы) отправлены на Кладбище`] : []),
+        ],
       };
     });
     if (!get().isRemoteAction) get().syncBoardState();
@@ -1263,28 +1637,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const { card, playerId: currentControllerId } = found;
       if (currentControllerId === newControllerId) return state;
 
-      const fromPlayer = state.players[currentControllerId];
       const toPlayer = state.players[newControllerId];
-      if (!fromPlayer || !toPlayer) return state;
+      if (!toPlayer) return state;
 
-      const movedCard: CardInstance = {
-        ...card,
-        controllerId: newControllerId,
-        order: Math.max(0, ...toPlayer.cards.filter(c => c.zone === card.zone).map(c => c.order)) + 1
-      };
+      const subtreeIds = new Set(collectStackSubtreeIds(state.players, cardInstanceId));
+      const nextOrder = getNextZoneOrder(state.players, newControllerId, card.zone, subtreeIds);
+      const nextPlayers = rebuildPlayersWithCards(state.players, (currentCard, holderId) => {
+        if (!subtreeIds.has(currentCard.instanceId)) {
+          return { playerId: holderId, card: currentCard };
+        }
+
+        return {
+          playerId: newControllerId,
+          card: {
+            ...currentCard,
+            controllerId: newControllerId,
+            order: currentCard.instanceId === cardInstanceId ? nextOrder : currentCard.order,
+          },
+        };
+      });
 
       return {
-        players: {
-          ...state.players,
-          [currentControllerId]: {
-            ...fromPlayer,
-            cards: fromPlayer.cards.filter(c => c.instanceId !== cardInstanceId)
-          },
-          [newControllerId]: {
-            ...toPlayer,
-            cards: [...toPlayer.cards, movedCard]
-          }
-        },
+        players: nextPlayers,
         log: [...state.log, `${card.template.name}: контроль передан ${toPlayer.name}`]
       };
     });

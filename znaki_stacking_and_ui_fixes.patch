@@ -1,0 +1,1125 @@
+diff --git a/src/components/Card.tsx b/src/components/Card.tsx
+index 368dd58..03a0ae1 100644
+--- a/src/components/Card.tsx
++++ b/src/components/Card.tsx
+@@ -12,13 +12,20 @@ interface CardProps {
+ }
+ 
+ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu, draggable, isOpponent }) => {
+-  const { selectedCardId, selectCard, hoverCard } = useGameStore();
++  const { selectedCardId, selectCard, hoverCard, setDraggingCardId } = useGameStore();
+   const isSelected = selectedCardId === card.instanceId;
+   const isDefense = card.position === 'defense';
+ 
+   const handleDragStart = (e: React.DragEvent) => {
++    e.dataTransfer.effectAllowed = 'move';
+     e.dataTransfer.setData('cardInstanceId', card.instanceId);
+     e.dataTransfer.setData('fromZone', card.zone);
++    e.dataTransfer.setData('application/x-znaki-card', card.instanceId);
++    setDraggingCardId(card.instanceId);
++  };
++
++  const handleDragEnd = () => {
++    setDraggingCardId(null);
+   };
+ 
+   const handleClick = (e: React.MouseEvent) => {
+@@ -55,6 +62,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
+         onContextMenu={onContextMenu}
+         draggable={draggable}
+         onDragStart={handleDragStart}
++        onDragEnd={handleDragEnd}
+         onMouseEnter={() => hoverCard(card.instanceId)}
+         onMouseLeave={() => hoverCard(null)}
+       >
+@@ -78,6 +86,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
+         onContextMenu={onContextMenu}
+         draggable={draggable}
+         onDragStart={handleDragStart}
++        onDragEnd={handleDragEnd}
+         onMouseEnter={() => hoverCard(card.instanceId)}
+         onMouseLeave={() => hoverCard(null)}
+       >
+@@ -85,6 +94,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
+           src={card.template.imageUrl}
+           alt={card.template.name}
+           className="w-full h-full object-cover"
++          draggable={false}
+           loading="lazy"
+           crossOrigin="anonymous"
+           referrerPolicy="no-referrer"
+@@ -172,6 +182,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
+       onContextMenu={onContextMenu}
+       draggable={draggable}
+       onDragStart={handleDragStart}
++      onDragEnd={handleDragEnd}
+       onMouseEnter={() => hoverCard(card.instanceId)}
+       onMouseLeave={() => hoverCard(null)}
+     >
+diff --git a/src/components/CardContextMenu.tsx b/src/components/CardContextMenu.tsx
+index 6957dab..338beae 100644
+--- a/src/components/CardContextMenu.tsx
++++ b/src/components/CardContextMenu.tsx
+@@ -1,4 +1,5 @@
+ import React, { useState } from 'react';
++import { createPortal } from 'react-dom';
+ import { useGameStore } from '../store/gameStore';
+ import type { Zone } from '../types';
+ 
+@@ -68,14 +69,17 @@ export const CardContextMenu: React.FC = () => {
+   // Clamp menu position to viewport
+   const menuStyle: React.CSSProperties = {
+     left: Math.min(contextMenuPosition.x, window.innerWidth - 250),
+-    top: Math.max(10, Math.min(contextMenuPosition.y, window.innerHeight - 400)),
++    top: Math.max(10, Math.min(contextMenuPosition.y, window.innerHeight - 20)),
++    maxHeight: 'calc(100vh - 20px)',
+   };
+ 
+-  return (
++  if (typeof document === 'undefined') return null;
++
++  return createPortal(
+     <>
+-      <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
++      <div className="fixed inset-0 z-[9998]" onClick={closeContextMenu} />
+       <div
+-        className="fixed z-50 bg-gray-900 border-2 border-gray-600 rounded-lg shadow-2xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm scrollbar-thin scrollbar-thumb-gray-600"
++        className="fixed z-[9999] bg-gray-900 border-2 border-gray-600 rounded-lg shadow-2xl py-1 min-w-[220px] overflow-y-auto overscroll-contain text-sm scrollbar-thin scrollbar-thumb-gray-600"
+         style={menuStyle}
+       >
+ 
+@@ -310,6 +314,7 @@ export const CardContextMenu: React.FC = () => {
+           </>
+         )}
+       </div>
+-    </>
++    </>,
++    document.body,
+   );
+ };
+diff --git a/src/components/CardPreview.tsx b/src/components/CardPreview.tsx
+index 47df61c..80f080c 100644
+--- a/src/components/CardPreview.tsx
++++ b/src/components/CardPreview.tsx
+@@ -23,16 +23,16 @@ const elementIcons: Record<string, string> = {
+ 
+ export const CardPreview: React.FC = () => {
+   const { hoveredCardId, selectedCardId, getCard } = useGameStore();
+-  const cardId = hoveredCardId || selectedCardId;
++  const cardId = selectedCardId || hoveredCardId;
+   if (!cardId) return (
+-    <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
++    <div className="h-full overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
+       Наведите на карту для предпросмотра
+     </div>
+   );
+ 
+   const card = getCard(cardId);
+   if (!card || (card.faceDown && card.ownerId !== useGameStore.getState().localPlayerId)) return (
+-    <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
++    <div className="h-full overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-600 text-center text-sm">
+       Карта скрыта
+     </div>
+   );
+@@ -56,7 +56,7 @@ export const CardPreview: React.FC = () => {
+   };
+ 
+   return (
+-    <div className="bg-gray-900 border-2 rounded-lg overflow-hidden" style={{ borderColor }}>
++    <div className="h-full max-h-full overflow-y-auto bg-gray-900 border-2 rounded-lg scrollbar-thin scrollbar-thumb-gray-700" style={{ borderColor }}>
+       {/* Header */}
+       <div className="p-2 flex justify-between items-center" style={{ background: borderColor }}>
+         <span className="font-bold text-black text-sm">{card.template.name}</span>
+@@ -108,7 +108,7 @@ export const CardPreview: React.FC = () => {
+ 
+         {/* Effect */}
+         {card.template.effectText && (
+-          <div className="bg-gray-800 rounded p-2 text-xs text-gray-200 leading-relaxed">
++          <div className="bg-gray-800 rounded p-2 text-xs text-gray-200 leading-relaxed whitespace-pre-wrap break-words max-h-[180px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600">
+             {card.template.effectText}
+           </div>
+         )}
+diff --git a/src/components/GameBoard.tsx b/src/components/GameBoard.tsx
+index 077b756..328a6ef 100644
+--- a/src/components/GameBoard.tsx
++++ b/src/components/GameBoard.tsx
+@@ -154,7 +154,7 @@ export const GameBoard: React.FC = () => {
+             {/* Reserve a stable height for the preview so it does not resize the
+                 panel (and shift the deck/zone lists below) as the hovered card
+                 changes. This stops the cards from "jumping" while browsing. */}
+-            <div className="h-[360px] flex-shrink-0 overflow-y-auto">
++            <div className="h-[360px] min-h-0 flex-shrink-0">
+               <CardPreview />
+             </div>
+             {opponentId && (
+diff --git a/src/components/PlayerField.tsx b/src/components/PlayerField.tsx
+index 899ea36..4a9cd8c 100644
+--- a/src/components/PlayerField.tsx
++++ b/src/components/PlayerField.tsx
+@@ -1,13 +1,135 @@
+-import React from 'react';
++import React, { useState } from 'react';
+ import { useGameStore } from '../store/gameStore';
+ import { Card } from './Card';
+-import type { Zone } from '../types';
++import type { CardInstance, Zone } from '../types';
+ 
+ interface PlayerFieldProps {
+   playerId: string;
+   isOpponent: boolean;
+ }
+ 
++type StackDropPosition = 'above' | 'below';
++
++const HOTSPOT_TOP_RATIO = 0.25;
++const HOTSPOT_BOTTOM_RATIO = 0.75;
++
++const hasCardPayload = (e: React.DragEvent) =>
++  Array.from(e.dataTransfer.types).includes('application/x-znaki-card') ||
++  Array.from(e.dataTransfer.types).includes('cardInstanceId');
++
++const getHotspotPosition = (e: React.DragEvent): StackDropPosition | null => {
++  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
++  const offsetY = e.clientY - rect.top;
++
++  if (offsetY <= rect.height * HOTSPOT_TOP_RATIO) return 'above';
++  if (offsetY >= rect.height * HOTSPOT_BOTTOM_RATIO) return 'below';
++  return null;
++};
++
++const FieldStackCard: React.FC<{
++  card: CardInstance;
++  isOpponent: boolean;
++  activeHotspot: { cardId: string; position: StackDropPosition } | null;
++  onCardClick: (cardId: string) => void;
++  onCardDragOver: (e: React.DragEvent, cardId: string) => void;
++  onCardDragLeave: (e: React.DragEvent, cardId: string) => void;
++  onCardDrop: (e: React.DragEvent, cardId: string) => void;
++}> = ({ card, isOpponent, activeHotspot, onCardClick, onCardDragOver, onCardDragLeave, onCardDrop }) => {
++  const { combatState, draggingCardId, getStackedCards, openContextMenu } = useGameStore();
++  const attachedCards = getStackedCards(card.instanceId);
++
++  const isAttacker = combatState.attackerId === card.instanceId;
++  const isTarget = combatState.targetIds.includes(card.instanceId);
++  const isDefender = combatState.defenderIds.includes(card.instanceId);
++  const showHotspots = !!draggingCardId && draggingCardId !== card.instanceId;
++  const topHotspotActive = activeHotspot?.cardId === card.instanceId && activeHotspot.position === 'above';
++  const bottomHotspotActive = activeHotspot?.cardId === card.instanceId && activeHotspot.position === 'below';
++
++  return (
++    <div className="flex flex-col items-start">
++      <div
++        className={`relative transition-all ${card.position === 'defense' ? 'mx-3 my-2' : ''}
++          ${isAttacker ? 'ring-4 ring-red-500 scale-105 z-10' : ''}
++          ${isTarget ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}
++          ${isDefender ? 'ring-4 ring-blue-500 scale-105 z-10' : ''}`}
++        onDragOver={(e) => onCardDragOver(e, card.instanceId)}
++        onDragLeave={(e) => onCardDragLeave(e, card.instanceId)}
++        onDrop={(e) => onCardDrop(e, card.instanceId)}
++      >
++        <Card
++          card={card}
++          isOpponent={isOpponent}
++          draggable={!isOpponent}
++          onClick={() => onCardClick(card.instanceId)}
++          onContextMenu={(e) => {
++            e.preventDefault();
++            openContextMenu(card.instanceId, e.clientX, e.clientY);
++          }}
++        />
++
++        {showHotspots && (
++          <>
++            <div
++              className={`pointer-events-none absolute inset-x-0 top-0 h-1/4 rounded-t-lg border border-dashed transition-colors ${
++                topHotspotActive
++                  ? 'border-cyan-300 bg-cyan-400/30 shadow-[0_0_12px_rgba(34,211,238,0.45)]'
++                  : 'border-cyan-400/40 bg-cyan-500/10'
++              }`}
++            >
++              <div className="absolute inset-x-0 top-0.5 text-center text-[9px] font-bold uppercase tracking-wide text-cyan-100/90">
++                Над
++              </div>
++            </div>
++            <div
++              className={`pointer-events-none absolute inset-x-0 bottom-0 h-1/4 rounded-b-lg border border-dashed transition-colors ${
++                bottomHotspotActive
++                  ? 'border-purple-300 bg-purple-400/30 shadow-[0_0_12px_rgba(192,132,252,0.45)]'
++                  : 'border-purple-400/40 bg-purple-500/10'
++              }`}
++            >
++              <div className="absolute inset-x-0 bottom-0.5 text-center text-[9px] font-bold uppercase tracking-wide text-purple-100/90">
++                Под
++              </div>
++            </div>
++          </>
++        )}
++
++        {attachedCards.length > 0 && (
++          <div className="absolute -bottom-2 -right-2 z-20 rounded-full border border-gray-500 bg-gray-900/95 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300 shadow-lg">
++            +{attachedCards.length}
++          </div>
++        )}
++        {isAttacker && (
++          <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[10px] px-1 rounded font-bold z-20">⚔️</div>
++        )}
++        {isTarget && (
++          <div className="absolute -top-2 -right-2 bg-yellow-600 text-white text-[10px] px-1 rounded font-bold z-20">🎯</div>
++        )}
++        {isDefender && (
++          <div className="absolute -top-2 -left-2 bg-blue-600 text-white text-[10px] px-1 rounded font-bold z-20">🛡</div>
++        )}
++      </div>
++
++      {attachedCards.length > 0 && (
++        <div className="ml-5 -mt-4 border-l border-dashed border-gray-600/70 pl-3 pt-4 space-y-1">
++          {attachedCards.map(attachedCard => (
++            <FieldStackCard
++              key={attachedCard.instanceId}
++              card={attachedCard}
++              isOpponent={isOpponent}
++              activeHotspot={activeHotspot}
++              onCardClick={onCardClick}
++              onCardDragOver={onCardDragOver}
++              onCardDragLeave={onCardDragLeave}
++              onCardDrop={onCardDrop}
++            />
++          ))}
++        </div>
++      )}
++    </div>
++  );
++};
++
+ const ZoneSlot: React.FC<{
+   zone: Zone;
+   playerId: string;
+@@ -15,34 +137,99 @@ const ZoneSlot: React.FC<{
+   isOpponent: boolean;
+   onDropCard?: (cardId: string, fromZone: string) => void;
+ }> = ({ zone, playerId, label, isOpponent, onDropCard }) => {
+-  const { players, openContextMenu, combatState, setCombatAttacker, addCombatTarget, removeCombatTarget, addCombatDefender, removeCombatDefender } = useGameStore();
++  const {
++    players,
++    combatState,
++    setCombatAttacker,
++    addCombatTarget,
++    removeCombatTarget,
++    addCombatDefender,
++    removeCombatDefender,
++    stackCardOnCard,
++  } = useGameStore();
++
++  const [activeHotspot, setActiveHotspot] = useState<{ cardId: string; position: StackDropPosition } | null>(null);
+ 
+   const player = players[playerId];
+   if (!player) return null;
+ 
+-  const cards = player.cards
+-    .filter(c => c.zone === zone)
++  const cards = player.cards.filter(card => card.zone === zone);
++  const topLevelCards = cards
++    .filter(card => !card.fieldStackedUnder)
+     .sort((a, b) => a.order - b.order);
+ 
+-  const handleDragOver = (e: React.DragEvent) => {
++  const hasDefense = zone === 'monsterZone' && cards.some(card => card.position === 'defense');
++
++  const handleDragOverZone = (e: React.DragEvent) => {
++    if (!hasCardPayload(e) || !onDropCard) return;
+     e.preventDefault();
+     e.currentTarget.classList.add('ring-2', 'ring-cyan-500/50');
+   };
+ 
+-  const handleDragLeave = (e: React.DragEvent) => {
++  const handleDragLeaveZone = (e: React.DragEvent) => {
++    const relatedTarget = e.relatedTarget as Node | null;
++    if (relatedTarget && e.currentTarget.contains(relatedTarget)) return;
+     e.currentTarget.classList.remove('ring-2', 'ring-cyan-500/50');
++    setActiveHotspot(null);
+   };
+ 
+-  const handleDrop = (e: React.DragEvent) => {
+-    e.preventDefault();
++  const handleDropToZone = (e: React.DragEvent) => {
+     e.currentTarget.classList.remove('ring-2', 'ring-cyan-500/50');
++    setActiveHotspot(null);
++    if (!onDropCard) return;
++
++    e.preventDefault();
+     const cardId = e.dataTransfer.getData('cardInstanceId');
+     const fromZone = e.dataTransfer.getData('fromZone');
+-    if (cardId && onDropCard) {
++    if (cardId) {
+       onDropCard(cardId, fromZone);
+     }
+   };
+ 
++  const handleCardDragOver = (e: React.DragEvent, cardId: string) => {
++    if (!hasCardPayload(e)) return;
++
++    const position = getHotspotPosition(e);
++    if (!position) {
++      if (activeHotspot?.cardId === cardId) {
++        setActiveHotspot(null);
++      }
++      return;
++    }
++
++    e.preventDefault();
++    e.stopPropagation();
++    if (activeHotspot?.cardId !== cardId || activeHotspot.position !== position) {
++      setActiveHotspot({ cardId, position });
++    }
++  };
++
++  const handleCardDragLeave = (e: React.DragEvent, cardId: string) => {
++    const relatedTarget = e.relatedTarget as Node | null;
++    if (relatedTarget && e.currentTarget.contains(relatedTarget)) return;
++    if (activeHotspot?.cardId === cardId) {
++      setActiveHotspot(null);
++    }
++  };
++
++  const handleDropOnCard = (e: React.DragEvent, cardId: string) => {
++    if (!hasCardPayload(e)) return;
++
++    const position = getHotspotPosition(e);
++    if (!position) {
++      setActiveHotspot(null);
++      return;
++    }
++
++    e.preventDefault();
++    e.stopPropagation();
++    setActiveHotspot(null);
++
++    const movingCardId = e.dataTransfer.getData('cardInstanceId');
++    if (!movingCardId || movingCardId === cardId) return;
++    stackCardOnCard(movingCardId, cardId, position);
++  };
++
+   const handleCardClick = (cardId: string) => {
+     if (combatState.mode === 'attacking') {
+       if (!combatState.attackerId) {
+@@ -63,59 +250,31 @@ const ZoneSlot: React.FC<{
+     }
+   };
+ 
+-
+-  // Check if any cards are in defense position for extra padding
+-  const hasDefense = zone === 'monsterZone' && cards.some(c => c.position === 'defense');
+-
+   return (
+     <div
+       className="border border-gray-700/50 rounded-lg p-1.5 transition-colors"
+       style={{ minHeight: hasDefense ? 160 : 145 }}
+-      onDragOver={handleDragOver}
+-      onDragLeave={handleDragLeave}
+-      onDrop={handleDrop}
++      onDragOver={handleDragOverZone}
++      onDragLeave={handleDragLeaveZone}
++      onDrop={handleDropToZone}
+     >
+-      <div className="text-[9px] text-gray-500 mb-1 text-center uppercase tracking-wider">{label} ({cards.length}/6)</div>
+-      <div className="flex flex-wrap gap-3 justify-center items-center" style={{ minHeight: hasDefense ? 135 : 130 }}>
+-        {cards.map(card => {
+-          const isAttacker = combatState.attackerId === card.instanceId;
+-          const isTarget = combatState.targetIds.includes(card.instanceId);
+-          const isDefender = combatState.defenderIds.includes(card.instanceId);
+-
+-          return (
+-              <div
+-                key={card.instanceId}
+-                className={`relative transition-all ${card.position === 'defense' ? 'mx-3 my-2' : ''} 
+-                  ${isAttacker ? 'ring-4 ring-red-500 scale-105 z-10' : ''} 
+-                  ${isTarget ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}
+-                  ${isDefender ? 'ring-4 ring-blue-500 scale-105 z-10' : ''}
+-                `}
+-              >
+-
+-              <Card
+-                card={card}
+-                isOpponent={isOpponent}
+-                draggable={!isOpponent}
+-                onClick={() => handleCardClick(card.instanceId)}
+-                onContextMenu={(e) => {
+-                  e.preventDefault();
+-                  openContextMenu(card.instanceId, e.clientX, e.clientY);
+-                }}
+-              />
+-
+-              {isAttacker && (
+-                <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[10px] px-1 rounded font-bold">⚔️</div>
+-              )}
+-              {isTarget && (
+-                <div className="absolute -top-2 -right-2 bg-yellow-600 text-white text-[10px] px-1 rounded font-bold">🎯</div>
+-              )}
+-              {isDefender && (
+-                <div className="absolute -top-2 -left-2 bg-blue-600 text-white text-[10px] px-1 rounded font-bold">🛡</div>
+-              )}
+-            </div>
+-          );
+-        })}
+-        {cards.length === 0 && (
++      <div className="text-[9px] text-gray-500 mb-1 text-center uppercase tracking-wider">
++        {label} ({cards.length}/6)
++      </div>
++      <div className="flex flex-wrap gap-3 justify-center items-start" style={{ minHeight: hasDefense ? 135 : 130 }}>
++        {topLevelCards.map(card => (
++          <FieldStackCard
++            key={card.instanceId}
++            card={card}
++            isOpponent={isOpponent}
++            activeHotspot={activeHotspot}
++            onCardClick={handleCardClick}
++            onCardDragOver={handleCardDragOver}
++            onCardDragLeave={handleCardDragLeave}
++            onCardDrop={handleDropOnCard}
++          />
++        ))}
++        {topLevelCards.length === 0 && (
+           <div className="w-[90px] h-[130px] border border-dashed border-gray-700/50 rounded-lg flex items-center justify-center text-gray-700 text-xs">
+             Пусто
+           </div>
+@@ -149,15 +308,24 @@ export const PlayerField: React.FC<PlayerFieldProps> = ({ playerId, isOpponent }
+   return (
+     <div className="space-y-1">
+       <ZoneSlot
+-        zone="monsterZone" playerId={playerId} label="Монстры" isOpponent={isOpponent}
++        zone="monsterZone"
++        playerId={playerId}
++        label="Монстры"
++        isOpponent={isOpponent}
+         onDropCard={handleDropToZone('monsterZone')}
+       />
+       <ZoneSlot
+-        zone="spellArtifactZone" playerId={playerId} label="Заклятья / Артефакты" isOpponent={isOpponent}
++        zone="spellArtifactZone"
++        playerId={playerId}
++        label="Заклятья / Артефакты"
++        isOpponent={isOpponent}
+         onDropCard={handleDropToZone('spellArtifactZone')}
+       />
+       <ZoneSlot
+-        zone="signZone" playerId={playerId} label="Знаки" isOpponent={isOpponent}
++        zone="signZone"
++        playerId={playerId}
++        label="Знаки"
++        isOpponent={isOpponent}
+         onDropCard={handleDropToZone('signZone')}
+       />
+     </div>
+diff --git a/src/store/gameStore.ts b/src/store/gameStore.ts
+index 6d85f4e..cf7c5d0 100644
+--- a/src/store/gameStore.ts
++++ b/src/store/gameStore.ts
+@@ -14,6 +14,7 @@ interface GameStore extends GameState {
+   cardTemplates: CardTemplate[];
+   selectedCardId: string | null;
+   hoveredCardId: string | null;
++  draggingCardId: string | null;
+   contextMenuCardId: string | null;
+   contextMenuPosition: { x: number; y: number } | null;
+   chatMessages: { sender: string; text: string }[];
+@@ -71,6 +72,9 @@ interface GameStore extends GameState {
+   flipCard: (cardInstanceId: string) => void;
+   selectCard: (cardInstanceId: string | null) => void;
+   hoverCard: (cardInstanceId: string | null) => void;
++  setDraggingCardId: (cardInstanceId: string | null) => void;
++  stackCardOnCard: (cardId: string, targetCardId: string, position: 'above' | 'below') => void;
++  getStackedCards: (cardInstanceId: string) => CardInstance[];
+ 
+   setCrystalHealth: (playerId: string, crystalIndex: number, health: number) => void;
+   destroyCrystal: (playerId: string, crystalIndex: number) => void;
+@@ -178,6 +182,86 @@ function unsealCardsFromCrystal(cards: CardInstance[], sealedCardIds: string[]):
+   });
+ }
+ 
++const FIELD_ZONES: Zone[] = ['monsterZone', 'spellArtifactZone', 'signZone'];
++const isFieldZone = (zone: Zone) => FIELD_ZONES.includes(zone);
++
++function getDirectStackChildren(players: Record<string, PlayerState>, parentId: string): { card: CardInstance; playerId: string }[] {
++  return Object.entries(players)
++    .flatMap(([playerId, player]) =>
++      player.cards
++        .filter(card => card.fieldStackedUnder === parentId)
++        .map(card => ({ card, playerId }))
++    )
++    .sort((a, b) => (a.card.stackOrder ?? a.card.order) - (b.card.stackOrder ?? b.card.order));
++}
++
++function collectStackEntries(players: Record<string, PlayerState>, parentId: string): { card: CardInstance; playerId: string }[] {
++  const result: { card: CardInstance; playerId: string }[] = [];
++  const visit = (currentId: string) => {
++    for (const entry of getDirectStackChildren(players, currentId)) {
++      result.push(entry);
++      visit(entry.card.instanceId);
++    }
++  };
++  visit(parentId);
++  return result;
++}
++
++function collectStackSubtreeIds(players: Record<string, PlayerState>, rootId: string): string[] {
++  return [rootId, ...collectStackEntries(players, rootId).map(entry => entry.card.instanceId)];
++}
++
++function rebuildPlayersWithCards(
++  players: Record<string, PlayerState>,
++  transform: (card: CardInstance, holderId: string) => { playerId: string; card: CardInstance } | null
++): Record<string, PlayerState> {
++  const rebuilt = Object.fromEntries(
++    Object.entries(players).map(([playerId, player]) => [playerId, { ...player, cards: [] as CardInstance[] }])
++  ) as Record<string, PlayerState>;
++
++  for (const [holderId, player] of Object.entries(players)) {
++    for (const originalCard of player.cards) {
++      const transformed = transform({ ...originalCard }, holderId);
++      if (!transformed) continue;
++      rebuilt[transformed.playerId].cards.push(transformed.card);
++    }
++  }
++
++  return rebuilt;
++}
++
++function getNextZoneOrder(
++  players: Record<string, PlayerState>,
++  playerId: string,
++  zone: Zone,
++  excludeIds: Set<string> = new Set()
++): number {
++  const player = players[playerId];
++  if (!player) return 1;
++  const maxOrder = Math.max(
++    0,
++    ...player.cards
++      .filter(card => card.zone === zone && !excludeIds.has(card.instanceId))
++      .map(card => card.order)
++  );
++  return maxOrder + 1;
++}
++
++function getNextStackOrder(
++  players: Record<string, PlayerState>,
++  parentId: string,
++  excludeIds: Set<string> = new Set()
++): number {
++  const maxOrder = Math.max(
++    0,
++    ...Object.values(players)
++      .flatMap(player => player.cards)
++      .filter(card => card.fieldStackedUnder === parentId && !excludeIds.has(card.instanceId))
++      .map(card => card.stackOrder ?? card.order)
++  );
++  return maxOrder + 1;
++}
++
+ const zoneLabel = (z: Zone) => {
+   const names: Record<Zone, string> = {
+     hand: 'Руку', monsterZone: 'Зону Монстров', spellArtifactZone: 'Зону Заклятий',
+@@ -202,6 +286,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
+   cardTemplates: [],
+   selectedCardId: null,
+   hoveredCardId: null,
++  draggingCardId: null,
+   contextMenuCardId: null,
+   contextMenuPosition: null,
+   chatMessages: [],
+@@ -348,7 +433,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
+     let currentLog = [`⚔️ ${attackerCard.template.name} атакует с силой ${attackValue}!`];
+ 
+     set(state => {
+-      const newPlayers = { ...state.players };
++      let newPlayers = { ...state.players };
+       
+       state.combatState.targetIds.forEach(targetId => {
+         const targetCard = get().getCard(targetId);
+@@ -368,11 +453,73 @@ export const useGameStore = create<GameStore>((set, get) => ({
+ 
+             if (newHealth <= 0) {
+               currentLog.push(`💥 ${targetCard.template.name} уничтожен!`);
+-              // Move to graveyard
+-              const updatedCards = p.cards.map(c =>
+-                c.instanceId === targetId ? { ...c, zone: 'graveyard' as Zone, currentHealth: 0 } : c
+-              );
+-              newPlayers[holderId] = { ...p, cards: updatedCards };
++
++              const subtreeIds = new Set(collectStackSubtreeIds(newPlayers, targetId));
++              const descendantEntries = collectStackEntries(newPlayers, targetId);
++              const descendantIds = new Set(descendantEntries.map(entry => entry.card.instanceId));
++              const primaryGraveyardHolderId = card.ownerId !== card.controllerId ? card.ownerId : holderId;
++              const primaryOrder = getNextZoneOrder(newPlayers, primaryGraveyardHolderId, 'graveyard', subtreeIds);
++
++              const graveyardCounters = new Map<string, number>();
++              for (const entry of descendantEntries) {
++                const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
++                if (!graveyardCounters.has(graveyardHolderId)) {
++                  graveyardCounters.set(
++                    graveyardHolderId,
++                    getNextZoneOrder(newPlayers, graveyardHolderId, 'graveyard', subtreeIds)
++                  );
++                }
++              }
++
++              const descendantGraveyardOrder = new Map<string, number>();
++              for (const entry of descendantEntries) {
++                const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
++                const nextOrder = graveyardCounters.get(graveyardHolderId) ?? 1;
++                descendantGraveyardOrder.set(entry.card.instanceId, nextOrder);
++                graveyardCounters.set(graveyardHolderId, nextOrder + 1);
++              }
++
++              newPlayers = rebuildPlayersWithCards(newPlayers, (currentCard, currentHolderId) => {
++                if (currentCard.instanceId === targetId) {
++                  return {
++                    playerId: primaryGraveyardHolderId,
++                    card: {
++                      ...currentCard,
++                      zone: 'graveyard',
++                      controllerId: primaryGraveyardHolderId,
++                      faceDown: false,
++                      currentHealth: 0,
++                      exhausted: false,
++                      fieldStackedUnder: undefined,
++                      stackOrder: undefined,
++                      order: primaryOrder,
++                    },
++                  };
++                }
++
++                if (descendantIds.has(currentCard.instanceId)) {
++                  const graveyardHolderId = currentCard.ownerId !== currentCard.controllerId ? currentCard.ownerId : currentHolderId;
++                  return {
++                    playerId: graveyardHolderId,
++                    card: {
++                      ...currentCard,
++                      zone: 'graveyard',
++                      controllerId: graveyardHolderId,
++                      faceDown: false,
++                      exhausted: false,
++                      fieldStackedUnder: undefined,
++                      stackOrder: undefined,
++                      order: descendantGraveyardOrder.get(currentCard.instanceId) ?? 1,
++                    },
++                  };
++                }
++
++                return { playerId: currentHolderId, card: currentCard };
++              });
++
++              if (descendantIds.size > 0) {
++                currentLog.push(`↳ ${descendantIds.size} прикрепл. карт(ы) отправлены на Кладбище`);
++              }
+             } else {
+               currentLog.push(`🩸 ${targetCard.template.name} получает ${attackValue} урона (Осталось: ${newHealth})`);
+               const updatedCards = p.cards.map(c =>
+@@ -723,38 +870,119 @@ export const useGameStore = create<GameStore>((set, get) => ({
+     set(state => {
+       const found = findCard(state.players, cardInstanceId);
+       if (!found) return state;
+-      const { card, playerId } = found;
+-      const player = state.players[playerId];
+-      const maxOrder = Math.max(0, ...player.cards.filter(c => c.zone === toZone).map(c => c.order));
+-      let crystals = player.crystals;
++
++      const { card, playerId: holderId } = found;
++      const subtreeIds = new Set(collectStackSubtreeIds(state.players, cardInstanceId));
++      const descendantEntries = collectStackEntries(state.players, cardInstanceId);
++      const descendantIds = new Set(descendantEntries.map(entry => entry.card.instanceId));
++      const leavingField = isFieldZone(card.zone) && !isFieldZone(toZone);
++      const movingToField = isFieldZone(toZone);
++      const returningToOwner = leavingField && card.ownerId !== card.controllerId;
++      const targetHolderId = returningToOwner ? card.ownerId : holderId;
++
++      const sourcePlayer = state.players[holderId];
++      let sourceCrystals = sourcePlayer.crystals;
+       if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
+-        crystals = crystals.map((cr, i) =>
+-          i === card.sealedUnderCrystal
+-            ? { ...cr, sealedCardIds: cr.sealedCardIds.filter(id => id !== cardInstanceId) }
+-            : cr
++        sourceCrystals = sourceCrystals.map((crystal, index) =>
++          index === card.sealedUnderCrystal
++            ? { ...crystal, sealedCardIds: crystal.sealedCardIds.filter(id => id !== cardInstanceId) }
++            : crystal
+         );
+       }
+-      return {
+-        players: {
+-          ...state.players,
+-          [playerId]: {
+-            ...player,
+-            crystals,
+-            cards: player.cards.map(c =>
+-              c.instanceId === cardInstanceId
+-                ? {
+-                  ...c,
+-                  zone: toZone,
+-                  faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
+-                  order: maxOrder + 1,
+-                  exhausted: toZone === 'signZone' ? c.exhausted : false,
+-                  sealedUnderCrystal: undefined
+-                }
+-                : c
+-            )
++
++      const playersForMove: Record<string, PlayerState> = {
++        ...state.players,
++        [holderId]: { ...sourcePlayer, crystals: sourceCrystals },
++      };
++
++      const primaryOrder = getNextZoneOrder(playersForMove, targetHolderId, toZone, subtreeIds);
++      const graveyardCounters = new Map<string, number>();
++      for (const entry of descendantEntries) {
++        const graveyardHolderId = leavingField && entry.card.ownerId !== entry.card.controllerId
++          ? entry.card.ownerId
++          : entry.playerId;
++        if (!graveyardCounters.has(graveyardHolderId)) {
++          graveyardCounters.set(
++            graveyardHolderId,
++            getNextZoneOrder(playersForMove, graveyardHolderId, 'graveyard', subtreeIds)
++          );
++        }
++      }
++
++      const descendantGraveyardOrder = new Map<string, number>();
++      for (const entry of descendantEntries) {
++        const graveyardHolderId = leavingField && entry.card.ownerId !== entry.card.controllerId
++          ? entry.card.ownerId
++          : entry.playerId;
++        const nextOrder = graveyardCounters.get(graveyardHolderId) ?? 1;
++        descendantGraveyardOrder.set(entry.card.instanceId, nextOrder);
++        graveyardCounters.set(graveyardHolderId, nextOrder + 1);
++      }
++
++      const nextPlayers = rebuildPlayersWithCards(playersForMove, (currentCard, currentHolderId) => {
++        if (currentCard.instanceId === cardInstanceId) {
++          return {
++            playerId: targetHolderId,
++            card: {
++              ...currentCard,
++              zone: toZone,
++              controllerId: targetHolderId,
++              faceDown: faceDown !== undefined ? faceDown : (toZone === 'mainDeck' || toZone === 'signDeck'),
++              order: primaryOrder,
++              exhausted: toZone === 'signZone' ? currentCard.exhausted : false,
++              sealedUnderCrystal: undefined,
++              fieldStackedUnder: undefined,
++              stackOrder: undefined,
++            },
++          };
++        }
++
++        if (descendantIds.has(currentCard.instanceId)) {
++          if (movingToField) {
++            return {
++              playerId: targetHolderId,
++              card: {
++                ...currentCard,
++                zone: toZone,
++                controllerId: targetHolderId,
++                exhausted: toZone === 'signZone' ? currentCard.exhausted : false,
++                sealedUnderCrystal: undefined,
++              },
++            };
+           }
+-        },
+-        log: [...state.log, `${player.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`]
++
++          const graveyardHolderId = leavingField && currentCard.ownerId !== currentCard.controllerId
++            ? currentCard.ownerId
++            : currentHolderId;
++
++          return {
++            playerId: graveyardHolderId,
++            card: {
++              ...currentCard,
++              zone: 'graveyard',
++              controllerId: graveyardHolderId,
++              faceDown: false,
++              order: descendantGraveyardOrder.get(currentCard.instanceId) ?? 1,
++              exhausted: false,
++              sealedUnderCrystal: undefined,
++              fieldStackedUnder: undefined,
++              stackOrder: undefined,
++            },
++          };
++        }
++
++        return { playerId: currentHolderId, card: currentCard };
++      });
++
++      const log = [`${state.players[targetHolderId]?.name || sourcePlayer.name}: ${card.template.name || 'Карта'} → ${zoneLabel(toZone)}`];
++      if (leavingField && descendantIds.size > 0) {
++        log.push(`↳ ${descendantIds.size} прикрепл. карт(ы) отправлены на Кладбище`);
++      }
++
++      return {
++        players: nextPlayers,
++        draggingCardId: null,
++        log: [...state.log, ...log],
+       };
+     });
+     if (!get().isRemoteAction) get().syncBoardState();
+@@ -830,6 +1058,76 @@ export const useGameStore = create<GameStore>((set, get) => ({
+ 
+   selectCard: (cardInstanceId) => set({ selectedCardId: cardInstanceId }),
+   hoverCard: (cardInstanceId) => set({ hoveredCardId: cardInstanceId }),
++  setDraggingCardId: (cardInstanceId) => set({ draggingCardId: cardInstanceId }),
++
++  getStackedCards: (cardInstanceId) =>
++    getDirectStackChildren(get().players, cardInstanceId).map(entry => entry.card),
++
++  stackCardOnCard: (cardId, targetCardId, position) => {
++    set(state => {
++      if (cardId === targetCardId) return state;
++
++      const movingFound = findCard(state.players, cardId);
++      const targetFound = findCard(state.players, targetCardId);
++      if (!movingFound || !targetFound) return state;
++      if (!isFieldZone(targetFound.card.zone)) return state;
++
++      const movingSubtreeIds = new Set(collectStackSubtreeIds(state.players, cardId));
++      if (movingSubtreeIds.has(targetCardId)) return state;
++
++      const targetHolderId = targetFound.playerId;
++      let nextPlayers = rebuildPlayersWithCards(state.players, (card, holderId) => {
++        if (movingSubtreeIds.has(card.instanceId)) {
++          return {
++            playerId: targetHolderId,
++            card: {
++              ...card,
++              controllerId: targetHolderId,
++              zone: targetFound.card.zone,
++              sealedUnderCrystal: undefined,
++            },
++          };
++        }
++
++        return { playerId: holderId, card };
++      });
++
++      if (position === 'above') {
++        const targetChildOrder = getNextStackOrder(nextPlayers, cardId, new Set([targetCardId]));
++        nextPlayers = updateCard(nextPlayers, cardId, c => ({
++          ...c,
++          fieldStackedUnder: targetFound.card.fieldStackedUnder,
++          stackOrder: targetFound.card.fieldStackedUnder ? targetFound.card.stackOrder : undefined,
++          order: targetFound.card.order,
++        }));
++        nextPlayers = updateCard(nextPlayers, targetCardId, c => ({
++          ...c,
++          fieldStackedUnder: cardId,
++          stackOrder: targetChildOrder,
++        }));
++      } else {
++        const childOrder = getNextStackOrder(nextPlayers, targetCardId, new Set([cardId]));
++        nextPlayers = updateCard(nextPlayers, cardId, c => ({
++          ...c,
++          fieldStackedUnder: targetCardId,
++          stackOrder: childOrder,
++          order: targetFound.card.order,
++        }));
++      }
++
++      return {
++        players: nextPlayers,
++        draggingCardId: null,
++        log: [
++          ...state.log,
++          position === 'above'
++            ? `${movingFound.card.template.name || 'Карта'} помещена НАД ${targetFound.card.template.name || 'картой'}`
++            : `${movingFound.card.template.name || 'Карта'} помещена ПОД ${targetFound.card.template.name || 'картой'}`,
++        ],
++      };
++    });
++    if (!get().isRemoteAction) get().syncBoardState();
++  },
+ 
+   setCrystalHealth: (playerId, crystalIndex, health) => {
+     set(state => {
+@@ -1171,27 +1469,103 @@ export const useGameStore = create<GameStore>((set, get) => ({
+ 
+   sealCard: (cardInstanceId, crystalIndex, playerId) => {
+     set(state => {
+-      const player = state.players[playerId];
+-      if (!player || !player.crystals[crystalIndex] || player.crystals[crystalIndex].destroyed) return state;
+-      const crystals = player.crystals.map((cr, i) =>
+-        i === crystalIndex
+-          ? { ...cr, sealedCardIds: [...cr.sealedCardIds, cardInstanceId] }
+-          : cr
++      const targetPlayer = state.players[playerId];
++      const found = findCard(state.players, cardInstanceId);
++      if (!targetPlayer || !found || !targetPlayer.crystals[crystalIndex] || targetPlayer.crystals[crystalIndex].destroyed) {
++        return state;
++      }
++
++      const { card, playerId: holderId } = found;
++      const subtreeIds = new Set(collectStackSubtreeIds(state.players, cardInstanceId));
++      const descendantEntries = collectStackEntries(state.players, cardInstanceId);
++      const descendantIds = new Set(descendantEntries.map(entry => entry.card.instanceId));
++
++      let sourceCrystals = state.players[holderId].crystals;
++      if (card.zone === 'sealed' && card.sealedUnderCrystal !== undefined) {
++        sourceCrystals = sourceCrystals.map((crystal, index) =>
++          index === card.sealedUnderCrystal
++            ? { ...crystal, sealedCardIds: crystal.sealedCardIds.filter(id => id !== cardInstanceId) }
++            : crystal
++        );
++      }
++
++      const targetCrystals = targetPlayer.crystals.map((crystal, index) =>
++        index === crystalIndex
++          ? { ...crystal, sealedCardIds: [...crystal.sealedCardIds, cardInstanceId] }
++          : crystal
+       );
++
++      const playersForSeal: Record<string, PlayerState> = {
++        ...state.players,
++        [holderId]: { ...state.players[holderId], crystals: sourceCrystals },
++        [playerId]: { ...targetPlayer, crystals: targetCrystals },
++      };
++
++      const graveyardCounters = new Map<string, number>();
++      for (const entry of descendantEntries) {
++        const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
++        if (!graveyardCounters.has(graveyardHolderId)) {
++          graveyardCounters.set(
++            graveyardHolderId,
++            getNextZoneOrder(playersForSeal, graveyardHolderId, 'graveyard', subtreeIds)
++          );
++        }
++      }
++
++      const descendantGraveyardOrder = new Map<string, number>();
++      for (const entry of descendantEntries) {
++        const graveyardHolderId = entry.card.ownerId !== entry.card.controllerId ? entry.card.ownerId : entry.playerId;
++        const nextOrder = graveyardCounters.get(graveyardHolderId) ?? 1;
++        descendantGraveyardOrder.set(entry.card.instanceId, nextOrder);
++        graveyardCounters.set(graveyardHolderId, nextOrder + 1);
++      }
++
++      const nextPlayers = rebuildPlayersWithCards(playersForSeal, (currentCard, currentHolderId) => {
++        if (currentCard.instanceId === cardInstanceId) {
++          return {
++            playerId,
++            card: {
++              ...currentCard,
++              zone: 'sealed',
++              controllerId: playerId,
++              faceDown: true,
++              sealedUnderCrystal: crystalIndex,
++              exhausted: false,
++              fieldStackedUnder: undefined,
++              stackOrder: undefined,
++            },
++          };
++        }
++
++        if (descendantIds.has(currentCard.instanceId)) {
++          const graveyardHolderId = currentCard.ownerId !== currentCard.controllerId ? currentCard.ownerId : currentHolderId;
++          return {
++            playerId: graveyardHolderId,
++            card: {
++              ...currentCard,
++              zone: 'graveyard',
++              controllerId: graveyardHolderId,
++              faceDown: false,
++              order: descendantGraveyardOrder.get(currentCard.instanceId) ?? 1,
++              exhausted: false,
++              sealedUnderCrystal: undefined,
++              fieldStackedUnder: undefined,
++              stackOrder: undefined,
++            },
++          };
++        }
++
++        return { playerId: currentHolderId, card: currentCard };
++      });
++
+       return {
+-        players: {
+-          ...state.players,
+-          [playerId]: {
+-            ...player,
+-            crystals,
+-            cards: player.cards.map(c =>
+-              c.instanceId === cardInstanceId
+-                ? { ...c, zone: 'sealed' as Zone, faceDown: true, sealedUnderCrystal: crystalIndex }
+-                : c
+-            )
+-          }
+-        },
+-        log: [...state.log, `Карта запечатана под Кристалл ${crystalIndex + 1}`]
++        players: nextPlayers,
++        draggingCardId: null,
++        log: [
++          ...state.log,
++          `Карта запечатана под Кристалл ${crystalIndex + 1}`,
++          ...(descendantIds.size > 0 ? [`↳ ${descendantIds.size} прикрепл. карт(ы) отправлены на Кладбище`] : []),
++        ],
+       };
+     });
+     if (!get().isRemoteAction) get().syncBoardState();
+@@ -1263,28 +1637,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
+       const { card, playerId: currentControllerId } = found;
+       if (currentControllerId === newControllerId) return state;
+ 
+-      const fromPlayer = state.players[currentControllerId];
+       const toPlayer = state.players[newControllerId];
+-      if (!fromPlayer || !toPlayer) return state;
++      if (!toPlayer) return state;
+ 
+-      const movedCard: CardInstance = {
+-        ...card,
+-        controllerId: newControllerId,
+-        order: Math.max(0, ...toPlayer.cards.filter(c => c.zone === card.zone).map(c => c.order)) + 1
+-      };
++      const subtreeIds = new Set(collectStackSubtreeIds(state.players, cardInstanceId));
++      const nextOrder = getNextZoneOrder(state.players, newControllerId, card.zone, subtreeIds);
++      const nextPlayers = rebuildPlayersWithCards(state.players, (currentCard, holderId) => {
++        if (!subtreeIds.has(currentCard.instanceId)) {
++          return { playerId: holderId, card: currentCard };
++        }
+ 
+-      return {
+-        players: {
+-          ...state.players,
+-          [currentControllerId]: {
+-            ...fromPlayer,
+-            cards: fromPlayer.cards.filter(c => c.instanceId !== cardInstanceId)
++        return {
++          playerId: newControllerId,
++          card: {
++            ...currentCard,
++            controllerId: newControllerId,
++            order: currentCard.instanceId === cardInstanceId ? nextOrder : currentCard.order,
+           },
+-          [newControllerId]: {
+-            ...toPlayer,
+-            cards: [...toPlayer.cards, movedCard]
+-          }
+-        },
++        };
++      });
++
++      return {
++        players: nextPlayers,
+         log: [...state.log, `${card.template.name}: контроль передан ${toPlayer.name}`]
+       };
+     });
+diff --git a/src/types.ts b/src/types.ts
+index 2022f1e..2c25b97 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -46,6 +46,8 @@ export interface CardInstance {
+   attackedThisTurn: boolean;
+   defendedThisTurn: boolean;
+   sealedUnderCrystal?: number;
++  fieldStackedUnder?: string;
++  stackOrder?: number;
+   order: number;
+ }
+ 

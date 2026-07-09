@@ -12,13 +12,20 @@ interface CardProps {
 }
 
 export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu, draggable, isOpponent }) => {
-  const { selectedCardId, selectCard, hoverCard } = useGameStore();
+  const { selectedCardId, selectCard, hoverCard, setDraggingCardId } = useGameStore();
   const isSelected = selectedCardId === card.instanceId;
   const isDefense = card.position === 'defense';
 
   const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('cardInstanceId', card.instanceId);
     e.dataTransfer.setData('fromZone', card.zone);
+    e.dataTransfer.setData('application/x-znaki-card', card.instanceId);
+    setDraggingCardId(card.instanceId);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingCardId(null);
   };
 
   const handleClick = (e: React.MouseEvent) => {
@@ -55,6 +62,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
         onContextMenu={onContextMenu}
         draggable={draggable}
         onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
         onMouseEnter={() => hoverCard(card.instanceId)}
         onMouseLeave={() => hoverCard(null)}
       >
@@ -78,6 +86,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
         onContextMenu={onContextMenu}
         draggable={draggable}
         onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
         onMouseEnter={() => hoverCard(card.instanceId)}
         onMouseLeave={() => hoverCard(null)}
       >
@@ -85,6 +94,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
           src={card.template.imageUrl}
           alt={card.template.name}
           className="w-full h-full object-cover"
+          draggable={false}
           loading="lazy"
           crossOrigin="anonymous"
           referrerPolicy="no-referrer"
@@ -172,6 +182,7 @@ export const Card: React.FC<CardProps> = ({ card, small, onClick, onContextMenu,
       onContextMenu={onContextMenu}
       draggable={draggable}
       onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onMouseEnter={() => hoverCard(card.instanceId)}
       onMouseLeave={() => hoverCard(null)}
     >

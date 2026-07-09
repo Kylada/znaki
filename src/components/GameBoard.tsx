@@ -154,7 +154,7 @@ export const GameBoard: React.FC = () => {
             {/* Reserve a stable height for the preview so it does not resize the
                 panel (and shift the deck/zone lists below) as the hovered card
                 changes. This stops the cards from "jumping" while browsing. */}
-            <div className="h-[360px] flex-shrink-0 overflow-y-auto">
+            <div className="h-[360px] min-h-0 flex-shrink-0">
               <CardPreview />
             </div>
             {opponentId && (

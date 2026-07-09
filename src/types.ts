@@ -46,6 +46,8 @@ export interface CardInstance {
   attackedThisTurn: boolean;
   defendedThisTurn: boolean;
   sealedUnderCrystal?: number;
+  fieldStackedUnder?: string;
+  stackOrder?: number;
   order: number;
 }
 

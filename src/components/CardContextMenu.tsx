@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useGameStore } from '../store/gameStore';
 import type { Zone } from '../types';
 
@@ -68,14 +69,17 @@ export const CardContextMenu: React.FC = () => {
   // Clamp menu position to viewport
   const menuStyle: React.CSSProperties = {
     left: Math.min(contextMenuPosition.x, window.innerWidth - 250),
-    top: Math.max(10, Math.min(contextMenuPosition.y, window.innerHeight - 400)),
+    top: Math.max(10, Math.min(contextMenuPosition.y, window.innerHeight - 20)),
+    maxHeight: 'calc(100vh - 20px)',
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
+      <div className="fixed inset-0 z-[9998]" onClick={closeContextMenu} />
       <div
-        className="fixed z-50 bg-gray-900 border-2 border-gray-600 rounded-lg shadow-2xl py-1 min-w-[220px] max-h-[80vh] overflow-y-auto text-sm scrollbar-thin scrollbar-thumb-gray-600"
+        className="fixed z-[9999] bg-gray-900 border-2 border-gray-600 rounded-lg shadow-2xl py-1 min-w-[220px] overflow-y-auto overscroll-contain text-sm scrollbar-thin scrollbar-thumb-gray-600"
         style={menuStyle}
       >
 
@@ -310,6 +314,7 @@ export const CardContextMenu: React.FC = () => {
           </>
         )}
       </div>
-    </>
+    </>,
+    document.body,
   );
 };
