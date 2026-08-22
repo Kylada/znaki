@@ -5,6 +5,7 @@ import type { CardType, Element } from '../types';
 import artifactTemplate from '../assets/card-maker/template_artifacts_3.png?inline';
 import monsterTemplate from '../assets/card-maker/template_monsters_3.png?inline';
 import spellTemplate from '../assets/card-maker/template_spells_3.png?inline';
+import sealsTemplate from '../assets/card-maker/seals.png?inline';
 import battleAxeIcon from '../assets/card-maker/battle-axe.png?inline';
 import mineralHeartIcon from '../assets/card-maker/mineral-heart.png?inline';
 import chaosIcon from '../assets/card-maker/Chaos.png?inline';
@@ -27,6 +28,7 @@ interface CardMakerModalProps {
 type MakerMode = 'single' | 'batch';
 type ImageSourceMode = 'upload' | 'url';
 type RealElement = Exclude<Element, 'Нет'>;
+type Rect = { x: number; y: number; width: number; height: number };
 
 type CardDraft = {
   id: string;
@@ -54,28 +56,29 @@ type BatchItem = {
   missingFields: string[];
 };
 
-type Rect = { x: number; y: number; width: number; height: number };
+const CARD_WIDTH = 750;
+const CARD_HEIGHT = 1050;
+const px = (percent: number) => (CARD_WIDTH * percent) / 100;
+const py = (percent: number) => (CARD_HEIGHT * percent) / 100;
 
-const CARD_WIDTH = 744;
-const CARD_HEIGHT = 1048;
+const TITLE_RECT: Rect = { x: px(32), y: py(4), width: px(61), height: py(6) };
+const SUBTYPE_RECT: Rect = { x: px(30), y: py(11), width: px(62), height: py(7) };
+const COST_RECT: Rect = { x: px(4.5), y: py(1.75), width: px(15), height: py(15) };
+const DEFAULT_TEXT_RECT: Rect = { x: px(26), y: py(69), width: px(65), height: py(24) };
+const ARTIFACT_TEXT_RECT: Rect = { x: px(17), y: py(68), width: px(75), height: py(25) };
+const ATTACK_ICON_RECT: Rect = { x: px(5), y: py(81), width: px(10), height: py(10) };
+const ATTACK_VALUE_RECT: Rect = { x: px(7), y: py(83), width: px(7), height: py(7) };
+const HEALTH_ICON_RECT: Rect = { x: px(14), y: py(88.5), width: px(11), height: py(11) };
+const HEALTH_VALUE_RECT: Rect = { x: px(16), y: py(90.5), width: px(7), height: py(7) };
+const ELEMENT_AREA_RECT: Rect = { x: px(0.9), y: py(21.5), width: px(14), height: py(60) };
+const ELEMENT_SLOT_RECT: Rect = { x: 0, y: 0, width: px(14), height: py(14) };
 
 const ART_FRAME_BY_TYPE: Record<CardType, Rect> = {
-  monster: { x: 105, y: 198, width: 592, height: 489 },
-  artifact: { x: 104, y: 202, width: 592, height: 489 },
-  spell: { x: 104, y: 195, width: 592, height: 489 },
-  sign: { x: 104, y: 195, width: 592, height: 489 },
+  monster: { x: 106, y: 198, width: 597, height: 490 },
+  spell: { x: 105, y: 195, width: 597, height: 490 },
+  artifact: { x: 105, y: 202, width: 597, height: 490 },
+  sign: { x: 0, y: 0, width: 0, height: 0 },
 };
-
-const TITLE_RECT: Rect = { x: 202, y: 32, width: 458, height: 68 };
-const SUBTYPE_RECT: Rect = { x: 446, y: 104, width: 216, height: 52 };
-const TEXT_RECT: Rect = { x: 96, y: 717, width: 556, height: 222 };
-const ELEMENT_PANEL_RECT: Rect = { x: 24, y: 235, width: 74, height: 160 };
-const COST_RECT: Rect = { x: 24, y: 24, width: 82, height: 104 };
-const ATTACK_ICON_RECT: Rect = { x: 6, y: 842, width: 120, height: 120 };
-const ATTACK_VALUE_RECT: Rect = { x: 48, y: 888, width: 52, height: 54 };
-const HEALTH_ICON_RECT: Rect = { x: 62, y: 902, width: 110, height: 110 };
-const HEALTH_VALUE_RECT: Rect = { x: 94, y: 947, width: 56, height: 56 };
-const SIGN_WATERMARK_RECT: Rect = { x: 250, y: 280, width: 190, height: 190 };
 
 const ELEMENT_OPTIONS: RealElement[] = ['Свет', 'Тьма', 'Хаос', 'Порядок', 'Жизнь', 'Смерть'];
 
@@ -83,7 +86,7 @@ const templateByType: Record<CardType, string> = {
   monster: monsterTemplate,
   spell: spellTemplate,
   artifact: artifactTemplate,
-  sign: spellTemplate,
+  sign: sealsTemplate,
 };
 
 const elementIconByElement: Record<RealElement, string> = {
@@ -95,7 +98,7 @@ const elementIconByElement: Record<RealElement, string> = {
   Смерть: deathIcon,
 };
 
-const sealIconByElement: Record<RealElement, string> = {
+const signElementIconByElement: Record<RealElement, string> = {
   Свет: lightSealIcon,
   Тьма: darknessSealIcon,
   Хаос: chaosSealIcon,
@@ -133,31 +136,6 @@ const elementAliasMap: Record<string, RealElement | 'Нет'> = {
 
 const processedAssetCache = new Map<string, Promise<string>>();
 
-const normalizeElements = (elements: readonly (RealElement | 'Нет')[]): RealElement[] => {
-  const unique = Array.from(new Set(elements.filter((value): value is RealElement => value !== 'Нет')));
-  return unique;
-};
-
-const parseSingleElement = (value: unknown): RealElement | 'Нет' => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  return elementAliasMap[normalized] || 'Нет';
-};
-
-const parseElements = (...values: unknown[]): RealElement[] => {
-  const pieces = values
-    .flatMap(value => String(value ?? '').split(/[,+;/|\n]/g))
-    .map(piece => parseSingleElement(piece))
-    .filter((value): value is RealElement => value !== 'Нет');
-
-  if (pieces.length > 0) return normalizeElements(pieces);
-
-  const fallback = values
-    .map(parseSingleElement)
-    .filter((value): value is RealElement => value !== 'Нет');
-
-  return normalizeElements(fallback);
-};
-
 const makeEmptyDraft = (): CardDraft => ({
   id: crypto.randomUUID(),
   number: '',
@@ -176,6 +154,40 @@ const makeEmptyDraft = (): CardDraft => ({
   imageOffsetY: 0,
   imageScale: 1,
 });
+
+const normalizeElements = (elements: readonly (RealElement | 'Нет')[]) =>
+  Array.from(new Set(elements.filter((value): value is RealElement => value !== 'Нет')));
+
+const parseSingleElement = (value: unknown): RealElement | 'Нет' => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return elementAliasMap[normalized] || 'Нет';
+};
+
+const parseElements = (...values: unknown[]): RealElement[] => {
+  const split = values
+    .flatMap(value => String(value ?? '').split(/[,+;/|\n]/g))
+    .map(part => parseSingleElement(part))
+    .filter((value): value is RealElement => value !== 'Нет');
+
+  if (split.length > 0) return normalizeElements(split);
+
+  return normalizeElements(values.map(parseSingleElement));
+};
+
+const parseType = (value: unknown, subtype?: unknown): CardType => {
+  const primary = String(value ?? '').trim().toLowerCase();
+  const secondary = String(subtype ?? '').trim().toLowerCase();
+
+  if (primary.includes('знак') || primary.includes('seal') || primary.includes('sign') || secondary.includes('знак') || secondary.includes('seal') || secondary.includes('sign')) {
+    return 'sign';
+  }
+  if (primary.includes('монстр') || primary.includes('monster')) return 'monster';
+  if (primary.includes('артеф') || primary.includes('artifact')) return 'artifact';
+  if (primary.includes('закля') || primary.includes('spell')) return 'spell';
+  if (secondary.includes('монумент') || secondary.includes('экип') || secondary.includes('equipment')) return 'artifact';
+  if (secondary.includes('быстр') || secondary.includes('длитель') || secondary.includes('spell')) return 'spell';
+  return 'monster';
+};
 
 const getMissingFields = (draft: CardDraft): string[] => {
   const missing: string[] = [];
@@ -203,8 +215,6 @@ const sanitizeFileName = (value: string) =>
     .replace(/[\\/:*?"<>|]/g, '')
     .replace(/\s+/g, '_')
     .slice(0, 80) || 'znaki-card';
-
-const elementSummary = (elements: readonly RealElement[]) => (elements.length > 0 ? elements.join(', ') : 'Нет');
 
 const numberToString = (value: unknown, fallback = '') => {
   if (value === null || value === undefined || value === '') return fallback;
@@ -252,17 +262,17 @@ const removeBlackBackground = async (src: string) => {
           context.drawImage(image, 0, 0);
           const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
           const { data } = imageData;
-          for (let index = 0; index < data.length; index += 4) {
-            const red = data[index];
-            const green = data[index + 1];
-            const blue = data[index + 2];
-            const value = Math.max(red, green, blue);
-            if (value < 12) {
-              data[index + 3] = 0;
-            } else {
-              data[index + 3] = Math.max(data[index + 3], Math.min(255, value + 35));
+
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const max = Math.max(r, g, b);
+            if (max < 24) {
+              data[i + 3] = 0;
             }
           }
+
           context.putImageData(imageData, 0, 0);
           resolve(canvas.toDataURL('image/png'));
         };
@@ -271,7 +281,127 @@ const removeBlackBackground = async (src: string) => {
       })
     );
   }
+
   return processedAssetCache.get(src)!;
+};
+
+const createSvgObjectUrl = (svg: string) =>
+  URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+
+const createMeasureContext = () => {
+  const canvas = document.createElement('canvas');
+  return canvas.getContext('2d');
+};
+
+const splitLongToken = (ctx: CanvasRenderingContext2D, token: string, maxWidth: number) => {
+  const parts: string[] = [];
+  let current = '';
+
+  for (const char of token) {
+    const candidate = current + char;
+    if (!current || ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+    } else {
+      parts.push(current);
+      current = char;
+    }
+  }
+
+  if (current) parts.push(current);
+  return parts;
+};
+
+const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
+  const paragraphs = text.replace(/\r/g, '').split('\n');
+  const lines: string[] = [];
+
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    if (!paragraph.trim()) {
+      lines.push('');
+    } else {
+      const tokens = paragraph.match(/\S+|\s+/g) || [paragraph];
+      let currentLine = '';
+
+      tokens.forEach(token => {
+        if (!token.trim()) {
+          if (currentLine && ctx.measureText(currentLine + token).width <= maxWidth) {
+            currentLine += token;
+          }
+          return;
+        }
+
+        const chunks = ctx.measureText(token).width > maxWidth ? splitLongToken(ctx, token, maxWidth) : [token];
+        chunks.forEach((chunk, chunkIndex) => {
+          const candidate = currentLine ? `${currentLine}${chunk}` : chunk;
+          if (ctx.measureText(candidate).width <= maxWidth) {
+            currentLine = candidate;
+          } else {
+            if (currentLine) lines.push(currentLine.trimEnd());
+            currentLine = chunk;
+          }
+
+          if (chunkIndex < chunks.length - 1) {
+            lines.push(currentLine.trimEnd());
+            currentLine = '';
+          }
+        });
+      });
+
+      if (currentLine) lines.push(currentLine.trimEnd());
+    }
+
+    if (paragraphIndex < paragraphs.length - 1) lines.push('');
+  });
+
+  return lines;
+};
+
+const fitSingleLine = (
+  text: string,
+  width: number,
+  maxFont: number,
+  minFont: number,
+  fontFamily: string,
+  weight = 700,
+) => {
+  const ctx = createMeasureContext();
+  if (!ctx) return { fontSize: minFont };
+
+  for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
+    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+    if (ctx.measureText(text).width <= width) {
+      return { fontSize };
+    }
+  }
+
+  return { fontSize: minFont };
+};
+
+const fitMultiline = (
+  text: string,
+  width: number,
+  height: number,
+  maxFont: number,
+  minFont: number,
+  fontFamily: string,
+  weight = 700,
+  lineHeightMultiplier = 1.04,
+) => {
+  const ctx = createMeasureContext();
+  if (!ctx) return { fontSize: minFont, lines: [text], lineHeight: minFont * lineHeightMultiplier };
+
+  for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
+    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+    const lines = wrapText(ctx, text, width);
+    const lineHeight = fontSize * lineHeightMultiplier;
+    if (lines.length * lineHeight <= height) {
+      return { fontSize, lines, lineHeight };
+    }
+  }
+
+  ctx.font = `${weight} ${minFont}px ${fontFamily}`;
+  const lines = wrapText(ctx, text, width);
+  return { fontSize: minFont, lines, lineHeight: minFont * lineHeightMultiplier };
 };
 
 const readSheetDataFromFile = async (file: File): Promise<any[][]> => {
@@ -297,21 +427,9 @@ const readSheetDataFromGoogle = async (url: string): Promise<any[][]> => {
   return XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
 };
 
-const parseType = (value: unknown, subtype?: unknown): CardType => {
-  const primary = String(value ?? '').trim().toLowerCase();
-  const secondary = String(subtype ?? '').trim().toLowerCase();
-
-  if (primary.includes('знак') || primary.includes('sign') || secondary.includes('знак') || secondary.includes('sign')) return 'sign';
-  if (primary.includes('монстр') || primary.includes('monster')) return 'monster';
-  if (primary.includes('артеф') || primary.includes('artifact')) return 'artifact';
-  if (primary.includes('закля') || primary.includes('spell')) return 'spell';
-  if (secondary.includes('монумент') || secondary.includes('equipment') || secondary.includes('экип')) return 'artifact';
-  if (secondary.includes('быстр') || secondary.includes('длитель') || secondary.includes('spell')) return 'spell';
-  return 'monster';
-};
-
 const parseBatchItems = (rows: any[][]): BatchItem[] => {
   if (rows.length === 0) return [];
+
   const headers = rows[0].map(cell => String(cell ?? '').trim().toLowerCase());
   const findColumn = (...names: string[]) => {
     for (const name of names) {
@@ -373,235 +491,99 @@ const parseBatchItems = (rows: any[][]): BatchItem[] => {
   return items;
 };
 
-const createMeasureContext = () => {
-  const canvas = document.createElement('canvas');
-  return canvas.getContext('2d');
-};
-
-const splitLongToken = (ctx: CanvasRenderingContext2D, token: string, maxWidth: number) => {
-  const parts: string[] = [];
-  let current = '';
-
-  for (const char of token) {
-    if (!current) {
-      current = char;
-      continue;
-    }
-
-    if (ctx.measureText(current + char).width <= maxWidth) {
-      current += char;
-    } else {
-      parts.push(current);
-      current = char;
-    }
-  }
-
-  if (current) parts.push(current);
-  return parts;
-};
-
-const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
-  const paragraphs = text.replace(/\r/g, '').split('\n');
-  const allLines: string[] = [];
-
-  paragraphs.forEach((paragraph, paragraphIndex) => {
-    if (!paragraph.trim()) {
-      allLines.push('');
-    } else {
-      const rawTokens = paragraph.match(/\S+|\s+/g) || [paragraph];
-      let currentLine = '';
-
-      rawTokens.forEach(token => {
-        if (!token.trim()) {
-          if (currentLine && ctx.measureText(currentLine + token).width <= maxWidth) {
-            currentLine += token;
-          }
-          return;
-        }
-
-        const tokenParts = ctx.measureText(token).width > maxWidth ? splitLongToken(ctx, token, maxWidth) : [token];
-
-        tokenParts.forEach((part, partIndex) => {
-          const candidate = currentLine ? `${currentLine}${part}` : part;
-          if (ctx.measureText(candidate).width <= maxWidth) {
-            currentLine = candidate;
-          } else {
-            if (currentLine) allLines.push(currentLine.trimEnd());
-            currentLine = part;
-          }
-
-          if (partIndex < tokenParts.length - 1) {
-            allLines.push(currentLine.trimEnd());
-            currentLine = '';
-          }
-        });
-      });
-
-      if (currentLine) {
-        allLines.push(currentLine.trimEnd());
-      }
-    }
-
-    if (paragraphIndex < paragraphs.length - 1) {
-      allLines.push('');
-    }
-  });
-
-  return allLines;
-};
-
-const fitSingleLine = (
-  text: string,
-  width: number,
-  maxFont: number,
-  minFont: number,
-  fontFamily: string,
-  weight = 700,
-) => {
-  const ctx = createMeasureContext();
-  if (!ctx) return { fontSize: minFont };
-
-  for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
-    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
-    if (ctx.measureText(text).width <= width) {
-      return { fontSize };
-    }
-  }
-
-  return { fontSize: minFont };
-};
-
-const fitMultiline = (
-  text: string,
-  width: number,
-  height: number,
-  maxFont: number,
-  minFont: number,
-  fontFamily: string,
-  weight = 700,
-  lineHeightMultiplier = 1.02,
-) => {
-  const ctx = createMeasureContext();
-  if (!ctx) return { fontSize: minFont, lines: [text], lineHeight: minFont * lineHeightMultiplier };
-
-  for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
-    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
-    const lines = wrapText(ctx, text, width);
-    const lineHeight = fontSize * lineHeightMultiplier;
-    if (lines.length * lineHeight <= height) {
-      return { fontSize, lines, lineHeight };
-    }
-  }
-
-  ctx.font = `${weight} ${minFont}px ${fontFamily}`;
-  const lines = wrapText(ctx, text, width);
-  return { fontSize: minFont, lines, lineHeight: minFont * lineHeightMultiplier };
-};
-
 const buildElementStackMarkup = (draft: CardDraft) => {
-  const icons = draft.elements.map(element => (draft.type === 'sign' ? sealIconByElement[element] : elementIconByElement[element]));
-  if (icons.length === 0) return '';
+  if (draft.elements.length === 0) return '';
 
-  const gap = icons.length > 1 ? 4 : 0;
-  const singleHeight = 138;
-  const iconHeight = icons.length === 1
-    ? singleHeight
-    : Math.min(74, (ELEMENT_PANEL_RECT.height - gap * (icons.length - 1)) / icons.length);
-  const iconWidth = iconHeight * (77 / 150);
-  const totalHeight = iconHeight * icons.length + gap * (icons.length - 1);
-  const startX = ELEMENT_PANEL_RECT.x + (ELEMENT_PANEL_RECT.width - iconWidth) / 2;
-  const startY = ELEMENT_PANEL_RECT.y + (ELEMENT_PANEL_RECT.height - totalHeight) / 2;
+  const iconSet = draft.type === 'sign' ? signElementIconByElement : elementIconByElement;
+  const slotX = ELEMENT_AREA_RECT.x;
+  const slotW = ELEMENT_SLOT_RECT.width;
+  const slotH = ELEMENT_SLOT_RECT.height;
+  const step = slotH * 0.86;
 
-  return icons
-    .map((icon, index) => {
-      const y = startY + index * (iconHeight + gap);
-      return `<image href="${icon}" x="${startX}" y="${y}" width="${iconWidth}" height="${iconHeight}" preserveAspectRatio="xMidYMid meet"/>`;
+  return draft.elements
+    .map((element, index) => {
+      const slotY = ELEMENT_AREA_RECT.y + step * index;
+      return `<image href="${iconSet[element]}" x="${slotX}" y="${slotY}" width="${slotW}" height="${slotH}" preserveAspectRatio="xMidYMid meet"/>`;
     })
     .join('');
 };
 
 const buildCardSvg = async (draft: CardDraft) => {
   const template = templateByType[draft.type];
-  const artFrame = ART_FRAME_BY_TYPE[draft.type];
-  const titleLayout = fitSingleLine(draft.name || 'Без названия', TITLE_RECT.width, 54, 22, 'Arial Black, Arial, sans-serif', 900);
-  const subtypeLayout = fitSingleLine(draft.subtype || '', SUBTYPE_RECT.width, 42, 16, 'Arial Black, Arial, sans-serif', 800);
-  const costLayout = fitSingleLine(draft.cost.trim() || '0', COST_RECT.width, 86, 24, "Georgia, 'Times New Roman', serif", 700);
-  const attackLayout = fitSingleLine(draft.attack.trim() || '0', ATTACK_VALUE_RECT.width, 62, 24, 'Arial Black, Arial, sans-serif', 900);
-  const healthLayout = fitSingleLine(draft.health.trim() || '0', HEALTH_VALUE_RECT.width, 62, 24, 'Arial Black, Arial, sans-serif', 900);
-  const textLayout = fitMultiline(draft.text || '', TEXT_RECT.width, TEXT_RECT.height, 44, 13, 'Arial, Helvetica, sans-serif', 700, 1.01);
-
   const attackIcon = await removeBlackBackground(battleAxeIcon);
   const healthIcon = await removeBlackBackground(mineralHeartIcon);
+  const artFrame = ART_FRAME_BY_TYPE[draft.type];
+  const textRect = draft.type === 'artifact' ? ARTIFACT_TEXT_RECT : DEFAULT_TEXT_RECT;
+  const effectAlignment = draft.type === 'artifact' ? 'left' : 'center';
 
-  let artMarkup = `<rect x="${artFrame.x}" y="${artFrame.y}" width="${artFrame.width}" height="${artFrame.height}" fill="#efefef"/>`;
+  const titleText = draft.name.trim() || 'Без названия';
+  const subtypeText = draft.subtype.trim();
+  const costText = draft.cost.trim() || '0';
+  const attackText = draft.attack.trim() || '0';
+  const healthText = draft.health.trim() || '0';
+  const effectText = draft.text.trim();
 
-  if (draft.imageDataUrl) {
-    const artImage = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('Не удалось открыть изображение для карты'));
-      image.src = draft.imageDataUrl;
+  const titleLayout = fitSingleLine(titleText, TITLE_RECT.width, 60, 22, 'Arial Black, Arial, sans-serif', 900);
+  const subtypeLayout = fitSingleLine(subtypeText || ' ', SUBTYPE_RECT.width, 48, 16, 'Arial Black, Arial, sans-serif', 800);
+  const costLayout = fitSingleLine(costText, COST_RECT.width * 0.82, 96, 26, "Georgia, 'Times New Roman', serif", 700);
+  const attackLayout = fitSingleLine(attackText, ATTACK_VALUE_RECT.width * 0.9, 68, 22, 'Arial Black, Arial, sans-serif', 900);
+  const healthLayout = fitSingleLine(healthText, HEALTH_VALUE_RECT.width * 0.9, 68, 22, 'Arial Black, Arial, sans-serif', 900);
+  const effectLayout = fitMultiline(effectText, textRect.width, textRect.height, draft.type === 'artifact' ? 27 : 31, 12, 'Arial, Helvetica, sans-serif', 700, 1.04);
+
+  let underlay = '';
+
+  if (draft.type !== 'sign' && draft.imageDataUrl) {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const instance = new Image();
+      instance.onload = () => resolve(instance);
+      instance.onerror = () => reject(new Error('Не удалось открыть изображение для карты'));
+      instance.src = draft.imageDataUrl;
     });
 
-    const coverScale = Math.max(artFrame.width / artImage.width, artFrame.height / artImage.height);
-    const scale = coverScale * draft.imageScale;
-    const width = artImage.width * scale;
-    const height = artImage.height * scale;
+    const scale = Math.max(artFrame.width / image.width, artFrame.height / image.height) * draft.imageScale;
+    const width = image.width * scale;
+    const height = image.height * scale;
     const x = artFrame.x + (artFrame.width - width) / 2 + draft.imageOffsetX;
     const y = artFrame.y + (artFrame.height - height) / 2 + draft.imageOffsetY;
-
-    artMarkup = `<image href="${draft.imageDataUrl}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"/>`;
-  } else if (draft.type === 'sign' && draft.elements.length > 0) {
-    const sealIcon = sealIconByElement[draft.elements[0]];
-    artMarkup = `
-      <rect x="${artFrame.x}" y="${artFrame.y}" width="${artFrame.width}" height="${artFrame.height}" fill="#1f2937"/>
-      <image href="${sealIcon}" x="${SIGN_WATERMARK_RECT.x}" y="${SIGN_WATERMARK_RECT.y}" width="${SIGN_WATERMARK_RECT.width}" height="${SIGN_WATERMARK_RECT.height}" opacity="0.9" preserveAspectRatio="xMidYMid meet"/>
-    `;
+    underlay = `<image href="${draft.imageDataUrl}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"/>`;
   }
 
-  const showCost = draft.type !== 'sign';
-  const showAttack = draft.type === 'monster';
-  const showHealth = draft.type === 'monster' || draft.type === 'artifact';
-  const showSubtype = Boolean(draft.subtype.trim());
-  const showText = Boolean(draft.text.trim());
-  const elementStackMarkup = buildElementStackMarkup(draft);
-
-  const textMarkup = showText
-    ? textLayout.lines
+  const effectMarkup = effectText
+    ? effectLayout.lines
         .map((line, index) => {
-          const y = TEXT_RECT.y + textLayout.fontSize + index * textLayout.lineHeight;
-          return `<text x="${TEXT_RECT.x}" y="${y}" font-size="${textLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line || ' ')}</text>`;
+          const y = textRect.y + effectLayout.fontSize + index * effectLayout.lineHeight;
+          if (effectAlignment === 'center') {
+            return `<text x="${textRect.x + textRect.width / 2}" y="${y}" text-anchor="middle" font-size="${effectLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line || ' ')}</text>`;
+          }
+          return `<text x="${textRect.x}" y="${y}" font-size="${effectLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line || ' ')}</text>`;
         })
         .join('')
     : '';
 
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}">
-      ${artMarkup}
+      ${underlay}
       <image href="${template}" x="0" y="0" width="${CARD_WIDTH}" height="${CARD_HEIGHT}"/>
-      ${elementStackMarkup}
+      ${buildElementStackMarkup(draft)}
 
-      <text x="${TITLE_RECT.x + TITLE_RECT.width / 2}" y="${TITLE_RECT.y + TITLE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${titleLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#ffffff" stroke="#111111" stroke-width="6" paint-order="stroke fill">${svgEscape(draft.name || 'Без названия')}</text>
-      ${showSubtype ? `<text x="${SUBTYPE_RECT.x + SUBTYPE_RECT.width}" y="${SUBTYPE_RECT.y + SUBTYPE_RECT.height / 2 + 4}" text-anchor="end" dominant-baseline="middle" font-size="${subtypeLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="800" fill="#ffffff" stroke="#111111" stroke-width="4.5" paint-order="stroke fill">${svgEscape(draft.subtype)}</text>` : ''}
-      ${showCost ? `<text x="${COST_RECT.x + COST_RECT.width / 2}" y="${COST_RECT.y + COST_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${costLayout.fontSize}" font-family="Georgia, 'Times New Roman', serif" font-weight="700" fill="#111111">${svgEscape(draft.cost.trim() || '0')}</text>` : ''}
+      <text x="${TITLE_RECT.x + TITLE_RECT.width / 2}" y="${TITLE_RECT.y + TITLE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${titleLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#f5f5f5" stroke="#111111" stroke-width="6" paint-order="stroke fill">${svgEscape(titleText)}</text>
+      ${subtypeText ? `<text x="${SUBTYPE_RECT.x + SUBTYPE_RECT.width}" y="${SUBTYPE_RECT.y + SUBTYPE_RECT.height / 2}" text-anchor="end" dominant-baseline="middle" font-size="${subtypeLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="800" fill="#f5f5f5" stroke="#111111" stroke-width="5" paint-order="stroke fill">${svgEscape(subtypeText)}</text>` : ''}
+      ${draft.type !== 'sign' ? `<text x="${COST_RECT.x + COST_RECT.width / 2}" y="${COST_RECT.y + COST_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${costLayout.fontSize}" font-family="Georgia, 'Times New Roman', serif" font-weight="700" fill="#111111">${svgEscape(costText)}</text>` : ''}
 
-      ${textMarkup}
+      ${effectMarkup}
 
-      ${showAttack ? `
+      ${draft.type === 'monster' ? `
         <image href="${attackIcon}" x="${ATTACK_ICON_RECT.x}" y="${ATTACK_ICON_RECT.y}" width="${ATTACK_ICON_RECT.width}" height="${ATTACK_ICON_RECT.height}" preserveAspectRatio="xMidYMid meet"/>
-        <text x="${ATTACK_VALUE_RECT.x + ATTACK_VALUE_RECT.width / 2}" y="${ATTACK_VALUE_RECT.y + ATTACK_VALUE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${attackLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#fff9f4" stroke="#7a0000" stroke-width="8" paint-order="stroke fill">${svgEscape(draft.attack.trim() || '0')}</text>
+        <text x="${ATTACK_VALUE_RECT.x + ATTACK_VALUE_RECT.width / 2}" y="${ATTACK_VALUE_RECT.y + ATTACK_VALUE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${attackLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#ffffff" stroke="#111111" stroke-width="6" paint-order="stroke fill">${svgEscape(attackText)}</text>
       ` : ''}
 
-      ${showHealth ? `
+      ${(draft.type === 'monster' || draft.type === 'artifact') ? `
         <image href="${healthIcon}" x="${HEALTH_ICON_RECT.x}" y="${HEALTH_ICON_RECT.y}" width="${HEALTH_ICON_RECT.width}" height="${HEALTH_ICON_RECT.height}" preserveAspectRatio="xMidYMid meet"/>
-        <text x="${HEALTH_VALUE_RECT.x + HEALTH_VALUE_RECT.width / 2}" y="${HEALTH_VALUE_RECT.y + HEALTH_VALUE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${healthLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#fff9f4" stroke="#7a0000" stroke-width="8" paint-order="stroke fill">${svgEscape(draft.health.trim() || '0')}</text>
+        <text x="${HEALTH_VALUE_RECT.x + HEALTH_VALUE_RECT.width / 2}" y="${HEALTH_VALUE_RECT.y + HEALTH_VALUE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${healthLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#ffffff" stroke="#111111" stroke-width="6" paint-order="stroke fill">${svgEscape(healthText)}</text>
       ` : ''}
     </svg>
   `;
 };
-
-const createSvgObjectUrl = (svg: string) =>
-  URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
 
 const downloadPngFromSvg = async (svg: string, fileName: string) => {
   const image = new Image();
@@ -626,8 +608,8 @@ const downloadPngFromSvg = async (svg: string, fileName: string) => {
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('Не удалось сохранить PNG');
 
-    const link = document.createElement('a');
     const pngUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
     link.href = pngUrl;
     link.download = `${sanitizeFileName(fileName)}.png`;
     document.body.appendChild(link);
@@ -650,8 +632,8 @@ const CardForm: React.FC<{
 }> = ({ draft, onChange, onFileImage, onResolveUrl, imageBusy, imageError, batchMode }) => {
   const update = <K extends keyof CardDraft>(key: K, value: CardDraft[K]) => onChange({ ...draft, [key]: value });
   const toggleElement = (element: RealElement) => {
-    const hasElement = draft.elements.includes(element);
-    update('elements', hasElement ? draft.elements.filter(current => current !== element) : [...draft.elements, element]);
+    const exists = draft.elements.includes(element);
+    update('elements', exists ? draft.elements.filter(current => current !== element) : [...draft.elements, element]);
   };
 
   return (
@@ -671,7 +653,7 @@ const CardForm: React.FC<{
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${draft.elements.length === 0 ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold ${draft.elements.length === 0 ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
               onClick={() => update('elements', [])}
             >
               Нет элемента
@@ -682,7 +664,7 @@ const CardForm: React.FC<{
                 <button
                   key={element}
                   type="button"
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${active ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${active ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
                   onClick={() => toggleElement(element)}
                 >
                   {element}
@@ -690,7 +672,7 @@ const CardForm: React.FC<{
               );
             })}
           </div>
-          <p className="text-[11px] text-gray-500">Выбрано: {elementSummary(draft.elements)}. Можно выбрать несколько элементов — в таком случае значки будут располагаться столбиком один под другим.</p>
+          <p className="text-[11px] text-gray-500">Несколько элементов просто складываются столбиком, без уменьшения значков.</p>
         </div>
       </div>
 
@@ -714,7 +696,7 @@ const CardForm: React.FC<{
             className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white"
             value={draft.subtype}
             onChange={(e) => update('subtype', e.target.value)}
-            placeholder="Гад / Быстрое / Монумент..."
+            placeholder="Гад / Обычное Заклятье / Монумент..."
           />
         </label>
       </div>
@@ -767,21 +749,21 @@ const CardForm: React.FC<{
           onChange={(e) => update('text', e.target.value)}
           placeholder="Текст эффекта"
         />
-        <p className="text-[11px] text-gray-500">Текст автоматически переносится, умеет ломать слишком длинные слова и поджимается по размеру, чтобы не вылезать из текстового окна.</p>
+        <p className="text-[11px] text-gray-500">Текст рендерится по правилам, близким к вашему NanDeck макету: разные безопасные зоны для монстров/заклятий и артефактов.</p>
       </label>
 
       <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-3 space-y-3">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${draft.imageMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+            className={`rounded-lg px-3 py-2 text-sm font-semibold ${draft.imageMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
             onClick={() => update('imageMode', 'upload')}
           >
             Из файла
           </button>
           <button
             type="button"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${draft.imageMode === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+            className={`rounded-lg px-3 py-2 text-sm font-semibold ${draft.imageMode === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
             onClick={() => update('imageMode', 'url')}
           >
             По ссылке
@@ -796,9 +778,7 @@ const CardForm: React.FC<{
               className="block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:font-semibold file:text-white hover:file:bg-blue-500"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
-                if (file) {
-                  await onFileImage(file);
-                }
+                if (file) await onFileImage(file);
               }}
             />
           </label>
@@ -818,7 +798,7 @@ const CardForm: React.FC<{
             >
               {imageBusy ? 'Загрузка...' : 'Загрузить изображение по ссылке'}
             </button>
-            <p className="text-[11px] text-gray-500">Если сайт не разрешает кросс-доменные загрузки, используйте файл с устройства — так предпросмотр и экспорт PNG будут надёжнее.</p>
+            <p className="text-[11px] text-gray-500">Если сайт режет кросс-доменные загрузки, лучше использовать файл с устройства.</p>
           </div>
         )}
 
@@ -829,8 +809,8 @@ const CardForm: React.FC<{
             <span className="text-xs uppercase tracking-wide text-gray-500">Смещение X</span>
             <input
               type="range"
-              min={-260}
-              max={260}
+              min={-320}
+              max={320}
               value={draft.imageOffsetX}
               onChange={(e) => update('imageOffsetX', Number(e.target.value))}
               className="w-full"
@@ -840,8 +820,8 @@ const CardForm: React.FC<{
             <span className="text-xs uppercase tracking-wide text-gray-500">Смещение Y</span>
             <input
               type="range"
-              min={-260}
-              max={260}
+              min={-320}
+              max={320}
               value={draft.imageOffsetY}
               onChange={(e) => update('imageOffsetY', Number(e.target.value))}
               className="w-full"
@@ -862,7 +842,7 @@ const CardForm: React.FC<{
 
         <p className="text-[11px] text-gray-500">
           Перетаскивайте картинку прямо в превью справа. Ползунки дублируют ту же настройку и помогают точнее выставить кадр.
-          {batchMode && ' В пакетном режиме ссылка из таблицы будет подхвачена автоматически, но вы можете заменить её вручную для текущей карты.'}
+          {batchMode && ' В пакетном режиме ссылка из таблицы подхватывается автоматически, но вы можете заменить её вручную для текущей карты.'}
         </p>
       </div>
     </div>
@@ -899,9 +879,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
 
   const setDraftAndPersist = (nextDraft: CardDraft) => {
     setDraft(nextDraft);
-    if (activeBatchIndex !== null) {
-      saveCurrentBatchDraft(nextDraft);
-    }
+    if (activeBatchIndex !== null) saveCurrentBatchDraft(nextDraft);
   };
 
   useEffect(() => {
@@ -911,19 +889,18 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
       try {
         const svg = await buildCardSvg(draft);
         if (cancelled) return;
-        const nextPreviewUrl = createSvgObjectUrl(svg);
+        const url = createSvgObjectUrl(svg);
         if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-        previewUrlRef.current = nextPreviewUrl;
-        setPreviewUrl(nextPreviewUrl);
+        previewUrlRef.current = url;
+        setPreviewUrl(url);
       } catch (error) {
-        if (!cancelled) {
-          if (previewUrlRef.current) {
-            URL.revokeObjectURL(previewUrlRef.current);
-            previewUrlRef.current = '';
-          }
-          setPreviewUrl('');
-          setModalError(error instanceof Error ? error.message : 'Не удалось собрать превью карты');
+        if (cancelled) return;
+        if (previewUrlRef.current) {
+          URL.revokeObjectURL(previewUrlRef.current);
+          previewUrlRef.current = '';
         }
+        setPreviewUrl('');
+        setModalError(error instanceof Error ? error.message : 'Не удалось собрать превью карты');
       }
     };
 
@@ -960,9 +937,9 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
       .then((dataUrl) => {
         setDraft(prev => {
           if (prev.id !== draft.id) return prev;
-          const nextDraft = { ...prev, imageDataUrl: dataUrl, imageMode: 'url' as const };
-          saveCurrentBatchDraft(nextDraft);
-          return nextDraft;
+          const next = { ...prev, imageDataUrl: dataUrl, imageMode: 'url' as const };
+          saveCurrentBatchDraft(next);
+          return next;
         });
       })
       .catch((error) => {
@@ -1038,11 +1015,11 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
 
       setBatchStatus(`Автосохранение ${index + 1}/${items.length}: ${item.draft.name || 'Без названия'}`);
       try {
-        const hydratedDraft = item.draft.imageUrl && !item.draft.imageDataUrl && item.draft.type !== 'sign'
+        const hydrated = item.draft.imageUrl && !item.draft.imageDataUrl && item.draft.type !== 'sign'
           ? { ...item.draft, imageDataUrl: await urlToDataUrl(item.draft.imageUrl) }
           : item.draft;
-        await downloadCurrentDraft(hydratedDraft);
-        items[index] = { ...item, draft: hydratedDraft, missingFields: getMissingFields(hydratedDraft) };
+        await downloadCurrentDraft(hydrated);
+        items[index] = { ...item, draft: hydrated, missingFields: getMissingFields(hydrated) };
         setBatchItems([...items]);
       } catch (error) {
         setActiveBatchIndex(index);
@@ -1114,15 +1091,15 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     setModalError('');
     setImageError('');
     try {
-      const hydratedDraft = draft.imageUrl && draft.imageMode === 'url' && !draft.imageDataUrl && draft.type !== 'sign'
+      const hydrated = draft.imageUrl && draft.imageMode === 'url' && !draft.imageDataUrl && draft.type !== 'sign'
         ? { ...draft, imageDataUrl: await urlToDataUrl(draft.imageUrl.trim()) }
         : draft;
-      setDraft(hydratedDraft);
-      saveCurrentBatchDraft(hydratedDraft);
-      await downloadCurrentDraft(hydratedDraft);
+      setDraft(hydrated);
+      saveCurrentBatchDraft(hydrated);
+      await downloadCurrentDraft(hydrated);
 
       const nextItems = batchItems.map((item, index) => (
-        index === activeBatchIndex ? { ...item, draft: hydratedDraft, missingFields: getMissingFields(hydratedDraft) } : item
+        index === activeBatchIndex ? { ...item, draft: hydrated, missingFields: getMissingFields(hydrated) } : item
       ));
       setBatchItems(nextItems);
       await continueBatchFrom([...nextItems], activeBatchIndex + 1);
@@ -1134,12 +1111,12 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
   };
 
   const clearCurrent = () => {
-    const freshDraft = makeEmptyDraft();
+    const fresh = makeEmptyDraft();
     setImageError('');
     setModalError('');
-    setDraft(freshDraft);
+    setDraft(fresh);
     if (mode === 'batch' && activeBatchIndex !== null) {
-      saveCurrentBatchDraft(freshDraft);
+      saveCurrentBatchDraft(fresh);
       setBatchStatus('Текущая карточка очищена вручную.');
     }
   };
@@ -1155,7 +1132,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
   };
 
   const beginPreviewDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!previewRef.current) return;
+    if (!previewRef.current || draft.type === 'sign' || !draft.imageDataUrl) return;
     const rect = previewRef.current.getBoundingClientRect();
     const scaleX = rect.width / CARD_WIDTH;
     const scaleY = rect.height / CARD_HEIGHT;
@@ -1163,7 +1140,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     const localX = (event.clientX - rect.left) / scaleX;
     const localY = (event.clientY - rect.top) / scaleY;
     const insideArt = localX >= artFrame.x && localX <= artFrame.x + artFrame.width && localY >= artFrame.y && localY <= artFrame.y + artFrame.height;
-    if (!insideArt || !draft.imageDataUrl) return;
+    if (!insideArt) return;
 
     dragState.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1198,7 +1175,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
         <div className="flex items-center justify-between gap-4 border-b border-gray-800 px-4 py-3 md:px-6">
           <div>
             <h2 className="text-lg md:text-xl font-black text-yellow-400">🖼 Создать Карту</h2>
-            <p className="text-sm text-gray-400">Исправил разметку, подогнал безопасные зоны текста и добавил мульти-элементы. При необходимости ещё могу докрутить позиционирование по вашим новым примерам.</p>
+            <p className="text-sm text-gray-400">Подогнал геометрию ближе к вашему NanDeck-шаблону и подключил отдельную рамку для Печатей.</p>
           </div>
           <button className="text-2xl text-gray-500 hover:text-white" onClick={onClose}>✕</button>
         </div>
@@ -1342,7 +1319,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                 <h3 className="mb-3 text-base font-bold text-white">Предпросмотр</h3>
                 <div
                   ref={previewRef}
-                  className="mx-auto aspect-[744/1048] w-full max-w-[380px] overflow-hidden rounded-2xl border border-gray-800 bg-black shadow-[0_0_30px_rgba(0,0,0,0.45)] cursor-grab active:cursor-grabbing"
+                  className="mx-auto aspect-[5/7] w-full max-w-[380px] overflow-hidden rounded-2xl border border-gray-800 bg-black shadow-[0_0_30px_rgba(0,0,0,0.45)] cursor-grab active:cursor-grabbing"
                   onPointerDown={beginPreviewDrag}
                   onPointerMove={movePreviewDrag}
                   onPointerUp={endPreviewDrag}
@@ -1355,21 +1332,10 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                   )}
                 </div>
                 <div className="mt-3 text-xs text-gray-500 space-y-1">
-                  <p>• Перетаскивайте картинку прямо по окну арта, чтобы выставить кадр.</p>
-                  <p>• Цена, атака и здоровье теперь принимают и буквы / символы вроде <b>X</b> и <b>*</b>.</p>
-                  <p>• Элементы можно выбирать несколько разом — они встанут столбиком в левой плашке.</p>
+                  <p>• Геометрия полей теперь опирается на проценты из вашего файла `nandocards.txt`.</p>
+                  <p>• Для Печатей используется отдельный шаблон `seals.png`, а не перераскрашенная рамка заклятья.</p>
+                  <p>• Если нужно, я могу следующим проходом уже добивать чисто пиксельные микро-сдвиги по вашим новым примерам.</p>
                 </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-4 text-sm text-gray-300">
-                <h3 className="mb-2 text-base font-bold text-white">Что уже поправлено</h3>
-                <ul className="list-disc space-y-1 pl-5">
-                  <li>окно арта теперь подгоняется под реальные прозрачные рамки шаблона;</li>
-                  <li>подтип опущен ниже и лучше центрируется;</li>
-                  <li>текст умеет ужиматься и переносить длинные слова;</li>
-                  <li>иконки атаки и здоровья автоматически очищаются от чёрного фона;</li>
-                  <li>статы и цена масштабируются под доступное место.</li>
-                </ul>
               </div>
             </div>
           </div>
