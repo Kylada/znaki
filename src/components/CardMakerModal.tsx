@@ -26,6 +26,7 @@ interface CardMakerModalProps {
 
 type MakerMode = 'single' | 'batch';
 type ImageSourceMode = 'upload' | 'url';
+type RealElement = Exclude<Element, 'Нет'>;
 
 type CardDraft = {
   id: string;
@@ -33,7 +34,7 @@ type CardDraft = {
   name: string;
   type: CardType;
   subtype: string;
-  element: Element;
+  elements: RealElement[];
   cost: string;
   health: string;
   attack: string;
@@ -53,25 +54,30 @@ type BatchItem = {
   missingFields: string[];
 };
 
-const getMissingFields = (draft: CardDraft): string[] => {
-  const missing: string[] = [];
-  if (!draft.name.trim()) missing.push('Название');
-  if ((draft.type === 'monster' || draft.type === 'spell' || draft.type === 'artifact') && draft.cost === '') missing.push('Цена');
-  if ((draft.type === 'monster' || draft.type === 'artifact') && draft.health === '') missing.push('Здоровье');
-  if (draft.type === 'monster' && draft.attack === '') missing.push('Атака');
-  if (draft.type !== 'sign' && !draft.imageDataUrl && !draft.imageUrl.trim()) missing.push('Изображение');
-  return missing;
-};
+type Rect = { x: number; y: number; width: number; height: number };
 
 const CARD_WIDTH = 744;
 const CARD_HEIGHT = 1048;
-const ART_RECT = { x: 95, y: 176, width: 578, height: 492 };
-const TITLE_RECT = { x: 206, y: 40, width: 450, height: 56 };
-const SUBTYPE_RECT = { x: 486, y: 112, width: 174, height: 40 };
-const TEXT_RECT = { x: 158, y: 730, width: 460, height: 228 };
-const ICON_RECT = { x: 35, y: 271, width: 71, height: 121 };
 
-const elementLabels: Element[] = ['Свет', 'Тьма', 'Хаос', 'Порядок', 'Жизнь', 'Смерть', 'Нет'];
+const ART_FRAME_BY_TYPE: Record<CardType, Rect> = {
+  monster: { x: 105, y: 198, width: 592, height: 489 },
+  artifact: { x: 104, y: 202, width: 592, height: 489 },
+  spell: { x: 104, y: 195, width: 592, height: 489 },
+  sign: { x: 104, y: 195, width: 592, height: 489 },
+};
+
+const TITLE_RECT: Rect = { x: 202, y: 32, width: 458, height: 68 };
+const SUBTYPE_RECT: Rect = { x: 446, y: 104, width: 216, height: 52 };
+const TEXT_RECT: Rect = { x: 96, y: 717, width: 556, height: 222 };
+const ELEMENT_PANEL_RECT: Rect = { x: 24, y: 235, width: 74, height: 160 };
+const COST_RECT: Rect = { x: 24, y: 24, width: 82, height: 104 };
+const ATTACK_ICON_RECT: Rect = { x: 6, y: 842, width: 120, height: 120 };
+const ATTACK_VALUE_RECT: Rect = { x: 48, y: 888, width: 52, height: 54 };
+const HEALTH_ICON_RECT: Rect = { x: 62, y: 902, width: 110, height: 110 };
+const HEALTH_VALUE_RECT: Rect = { x: 94, y: 947, width: 56, height: 56 };
+const SIGN_WATERMARK_RECT: Rect = { x: 250, y: 280, width: 190, height: 190 };
+
+const ELEMENT_OPTIONS: RealElement[] = ['Свет', 'Тьма', 'Хаос', 'Порядок', 'Жизнь', 'Смерть'];
 
 const templateByType: Record<CardType, string> = {
   monster: monsterTemplate,
@@ -80,7 +86,7 @@ const templateByType: Record<CardType, string> = {
   sign: spellTemplate,
 };
 
-const elementIconByElement: Record<Exclude<Element, 'Нет'>, string> = {
+const elementIconByElement: Record<RealElement, string> = {
   Свет: lightIcon,
   Тьма: darknessIcon,
   Хаос: chaosIcon,
@@ -89,7 +95,7 @@ const elementIconByElement: Record<Exclude<Element, 'Нет'>, string> = {
   Смерть: deathIcon,
 };
 
-const sealIconByElement: Record<Exclude<Element, 'Нет'>, string> = {
+const sealIconByElement: Record<RealElement, string> = {
   Свет: lightSealIcon,
   Тьма: darknessSealIcon,
   Хаос: chaosSealIcon,
@@ -98,7 +104,7 @@ const sealIconByElement: Record<Exclude<Element, 'Нет'>, string> = {
   Смерть: deathSealIcon,
 };
 
-const elementAliasMap: Record<string, Element> = {
+const elementAliasMap: Record<string, RealElement | 'Нет'> = {
   a: 'Хаос',
   chaos: 'Хаос',
   хаос: 'Хаос',
@@ -125,13 +131,40 @@ const elementAliasMap: Record<string, Element> = {
   '-': 'Нет',
 };
 
+const processedAssetCache = new Map<string, Promise<string>>();
+
+const normalizeElements = (elements: readonly (RealElement | 'Нет')[]): RealElement[] => {
+  const unique = Array.from(new Set(elements.filter((value): value is RealElement => value !== 'Нет')));
+  return unique;
+};
+
+const parseSingleElement = (value: unknown): RealElement | 'Нет' => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return elementAliasMap[normalized] || 'Нет';
+};
+
+const parseElements = (...values: unknown[]): RealElement[] => {
+  const pieces = values
+    .flatMap(value => String(value ?? '').split(/[,+;/|\n]/g))
+    .map(piece => parseSingleElement(piece))
+    .filter((value): value is RealElement => value !== 'Нет');
+
+  if (pieces.length > 0) return normalizeElements(pieces);
+
+  const fallback = values
+    .map(parseSingleElement)
+    .filter((value): value is RealElement => value !== 'Нет');
+
+  return normalizeElements(fallback);
+};
+
 const makeEmptyDraft = (): CardDraft => ({
   id: crypto.randomUUID(),
   number: '',
   name: '',
   type: 'monster',
   subtype: '',
-  element: 'Нет',
+  elements: [],
   cost: '0',
   health: '0',
   attack: '0',
@@ -143,6 +176,16 @@ const makeEmptyDraft = (): CardDraft => ({
   imageOffsetY: 0,
   imageScale: 1,
 });
+
+const getMissingFields = (draft: CardDraft): string[] => {
+  const missing: string[] = [];
+  if (!draft.name.trim()) missing.push('Название');
+  if ((draft.type === 'monster' || draft.type === 'spell' || draft.type === 'artifact') && draft.cost === '') missing.push('Цена');
+  if ((draft.type === 'monster' || draft.type === 'artifact') && draft.health === '') missing.push('Здоровье');
+  if (draft.type === 'monster' && draft.attack === '') missing.push('Атака');
+  if (draft.type !== 'sign' && !draft.imageDataUrl && !draft.imageUrl.trim()) missing.push('Изображение');
+  return missing;
+};
 
 const svgEscape = (text: string) =>
   text
@@ -161,23 +204,7 @@ const sanitizeFileName = (value: string) =>
     .replace(/\s+/g, '_')
     .slice(0, 80) || 'znaki-card';
 
-const parseElement = (value: unknown): Element => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  return elementAliasMap[normalized] || 'Нет';
-};
-
-const parseType = (value: unknown, subtype?: unknown): CardType => {
-  const primary = String(value ?? '').trim().toLowerCase();
-  const secondary = String(subtype ?? '').trim().toLowerCase();
-
-  if (primary.includes('знак') || primary.includes('sign') || secondary.includes('знак') || secondary.includes('sign')) return 'sign';
-  if (primary.includes('монстр') || primary.includes('monster')) return 'monster';
-  if (primary.includes('артеф') || primary.includes('artifact')) return 'artifact';
-  if (primary.includes('закля') || primary.includes('spell')) return 'spell';
-  if (secondary.includes('монумент') || secondary.includes('equipment') || secondary.includes('экип')) return 'artifact';
-  if (secondary.includes('быстр') || secondary.includes('длитель') || secondary.includes('spell')) return 'spell';
-  return 'monster';
-};
+const elementSummary = (elements: readonly RealElement[]) => (elements.length > 0 ? elements.join(', ') : 'Нет');
 
 const numberToString = (value: unknown, fallback = '') => {
   if (value === null || value === undefined || value === '') return fallback;
@@ -206,6 +233,47 @@ const urlToDataUrl = async (url: string) => {
   return blobToDataUrl(await response.blob());
 };
 
+const removeBlackBackground = async (src: string) => {
+  if (!processedAssetCache.has(src)) {
+    processedAssetCache.set(
+      src,
+      new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const context = canvas.getContext('2d');
+          if (!context) {
+            reject(new Error('Не удалось обработать иконку'));
+            return;
+          }
+
+          context.drawImage(image, 0, 0);
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          const { data } = imageData;
+          for (let index = 0; index < data.length; index += 4) {
+            const red = data[index];
+            const green = data[index + 1];
+            const blue = data[index + 2];
+            const value = Math.max(red, green, blue);
+            if (value < 12) {
+              data[index + 3] = 0;
+            } else {
+              data[index + 3] = Math.max(data[index + 3], Math.min(255, value + 35));
+            }
+          }
+          context.putImageData(imageData, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        image.onerror = () => reject(new Error('Не удалось загрузить иконку'));
+        image.src = src;
+      })
+    );
+  }
+  return processedAssetCache.get(src)!;
+};
+
 const readSheetDataFromFile = async (file: File): Promise<any[][]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -227,6 +295,19 @@ const readSheetDataFromGoogle = async (url: string): Promise<any[][]> => {
   const workbook = XLSX.read(csvText, { type: 'string' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   return XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+};
+
+const parseType = (value: unknown, subtype?: unknown): CardType => {
+  const primary = String(value ?? '').trim().toLowerCase();
+  const secondary = String(subtype ?? '').trim().toLowerCase();
+
+  if (primary.includes('знак') || primary.includes('sign') || secondary.includes('знак') || secondary.includes('sign')) return 'sign';
+  if (primary.includes('монстр') || primary.includes('monster')) return 'monster';
+  if (primary.includes('артеф') || primary.includes('artifact')) return 'artifact';
+  if (primary.includes('закля') || primary.includes('spell')) return 'spell';
+  if (secondary.includes('монумент') || secondary.includes('equipment') || secondary.includes('экип')) return 'artifact';
+  if (secondary.includes('быстр') || secondary.includes('длитель') || secondary.includes('spell')) return 'spell';
+  return 'monster';
 };
 
 const parseBatchItems = (rows: any[][]): BatchItem[] => {
@@ -259,16 +340,16 @@ const parseBatchItems = (rows: any[][]): BatchItem[] => {
     if (!row || row.every(cell => String(cell ?? '').trim() === '')) continue;
 
     const type = parseType(typeCol >= 0 ? row[typeCol] : '', subtypeCol >= 0 ? row[subtypeCol] : '');
-    const element = parseElement(
-      elementDecyphCol >= 0 && row[elementDecyphCol] ? row[elementDecyphCol] : elementCol >= 0 ? row[elementCol] : ''
-    );
     const draft: CardDraft = {
       id: crypto.randomUUID(),
       number: numberToString(numberCol >= 0 ? row[numberCol] : ''),
       name: numberToString(nameCol >= 0 ? row[nameCol] : ''),
       type,
       subtype: numberToString(subtypeCol >= 0 ? row[subtypeCol] : ''),
-      element,
+      elements: parseElements(
+        elementDecyphCol >= 0 ? row[elementDecyphCol] : '',
+        elementCol >= 0 ? row[elementCol] : ''
+      ),
       cost: numberToString(costCol >= 0 ? row[costCol] : '', '0'),
       attack: numberToString(attackCol >= 0 ? row[attackCol] : '', type === 'monster' ? '0' : ''),
       health: numberToString(healthCol >= 0 ? row[healthCol] : '', type === 'monster' || type === 'artifact' ? '0' : ''),
@@ -292,41 +373,81 @@ const parseBatchItems = (rows: any[][]): BatchItem[] => {
   return items;
 };
 
-const getPreviewImageData = async (draft: CardDraft): Promise<string> => draft.imageDataUrl || '';
-
 const createMeasureContext = () => {
   const canvas = document.createElement('canvas');
   return canvas.getContext('2d');
 };
 
+const splitLongToken = (ctx: CanvasRenderingContext2D, token: string, maxWidth: number) => {
+  const parts: string[] = [];
+  let current = '';
+
+  for (const char of token) {
+    if (!current) {
+      current = char;
+      continue;
+    }
+
+    if (ctx.measureText(current + char).width <= maxWidth) {
+      current += char;
+    } else {
+      parts.push(current);
+      current = char;
+    }
+  }
+
+  if (current) parts.push(current);
+  return parts;
+};
+
 const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
   const paragraphs = text.replace(/\r/g, '').split('\n');
-  const lines: string[] = [];
+  const allLines: string[] = [];
 
   paragraphs.forEach((paragraph, paragraphIndex) => {
-    const words = paragraph.split(/\s+/).filter(Boolean);
-    if (words.length === 0) {
-      lines.push('');
+    if (!paragraph.trim()) {
+      allLines.push('');
     } else {
-      let current = words[0];
-      for (let wordIndex = 1; wordIndex < words.length; wordIndex += 1) {
-        const candidate = `${current} ${words[wordIndex]}`;
-        if (ctx.measureText(candidate).width <= maxWidth) {
-          current = candidate;
-        } else {
-          lines.push(current);
-          current = words[wordIndex];
+      const rawTokens = paragraph.match(/\S+|\s+/g) || [paragraph];
+      let currentLine = '';
+
+      rawTokens.forEach(token => {
+        if (!token.trim()) {
+          if (currentLine && ctx.measureText(currentLine + token).width <= maxWidth) {
+            currentLine += token;
+          }
+          return;
         }
+
+        const tokenParts = ctx.measureText(token).width > maxWidth ? splitLongToken(ctx, token, maxWidth) : [token];
+
+        tokenParts.forEach((part, partIndex) => {
+          const candidate = currentLine ? `${currentLine}${part}` : part;
+          if (ctx.measureText(candidate).width <= maxWidth) {
+            currentLine = candidate;
+          } else {
+            if (currentLine) allLines.push(currentLine.trimEnd());
+            currentLine = part;
+          }
+
+          if (partIndex < tokenParts.length - 1) {
+            allLines.push(currentLine.trimEnd());
+            currentLine = '';
+          }
+        });
+      });
+
+      if (currentLine) {
+        allLines.push(currentLine.trimEnd());
       }
-      lines.push(current);
     }
 
     if (paragraphIndex < paragraphs.length - 1) {
-      lines.push('');
+      allLines.push('');
     }
   });
 
-  return lines;
+  return allLines;
 };
 
 const fitSingleLine = (
@@ -338,16 +459,16 @@ const fitSingleLine = (
   weight = 700,
 ) => {
   const ctx = createMeasureContext();
-  if (!ctx) return { fontSize: minFont, text };
+  if (!ctx) return { fontSize: minFont };
 
   for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
     ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
     if (ctx.measureText(text).width <= width) {
-      return { fontSize, text };
+      return { fontSize };
     }
   }
 
-  return { fontSize: minFont, text };
+  return { fontSize: minFont };
 };
 
 const fitMultiline = (
@@ -358,114 +479,129 @@ const fitMultiline = (
   minFont: number,
   fontFamily: string,
   weight = 700,
-  lineHeightMultiplier = 1.12,
+  lineHeightMultiplier = 1.02,
 ) => {
   const ctx = createMeasureContext();
-  if (!ctx) return { fontSize: minFont, lines: [text] };
+  if (!ctx) return { fontSize: minFont, lines: [text], lineHeight: minFont * lineHeightMultiplier };
 
   for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
     ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
     const lines = wrapText(ctx, text, width);
     const lineHeight = fontSize * lineHeightMultiplier;
     if (lines.length * lineHeight <= height) {
-      return { fontSize, lines };
+      return { fontSize, lines, lineHeight };
     }
   }
 
   ctx.font = `${weight} ${minFont}px ${fontFamily}`;
-  return { fontSize: minFont, lines: wrapText(ctx, text, width) };
+  const lines = wrapText(ctx, text, width);
+  return { fontSize: minFont, lines, lineHeight: minFont * lineHeightMultiplier };
+};
+
+const buildElementStackMarkup = (draft: CardDraft) => {
+  const icons = draft.elements.map(element => (draft.type === 'sign' ? sealIconByElement[element] : elementIconByElement[element]));
+  if (icons.length === 0) return '';
+
+  const gap = icons.length > 1 ? 4 : 0;
+  const singleHeight = 138;
+  const iconHeight = icons.length === 1
+    ? singleHeight
+    : Math.min(74, (ELEMENT_PANEL_RECT.height - gap * (icons.length - 1)) / icons.length);
+  const iconWidth = iconHeight * (77 / 150);
+  const totalHeight = iconHeight * icons.length + gap * (icons.length - 1);
+  const startX = ELEMENT_PANEL_RECT.x + (ELEMENT_PANEL_RECT.width - iconWidth) / 2;
+  const startY = ELEMENT_PANEL_RECT.y + (ELEMENT_PANEL_RECT.height - totalHeight) / 2;
+
+  return icons
+    .map((icon, index) => {
+      const y = startY + index * (iconHeight + gap);
+      return `<image href="${icon}" x="${startX}" y="${y}" width="${iconWidth}" height="${iconHeight}" preserveAspectRatio="xMidYMid meet"/>`;
+    })
+    .join('');
 };
 
 const buildCardSvg = async (draft: CardDraft) => {
   const template = templateByType[draft.type];
-  const imageData = await getPreviewImageData(draft);
-  const elementIcon = draft.element !== 'Нет' && draft.type !== 'sign' ? elementIconByElement[draft.element] : '';
-  const sealIcon = draft.element !== 'Нет' ? sealIconByElement[draft.element] : '';
+  const artFrame = ART_FRAME_BY_TYPE[draft.type];
+  const titleLayout = fitSingleLine(draft.name || 'Без названия', TITLE_RECT.width, 54, 22, 'Arial Black, Arial, sans-serif', 900);
+  const subtypeLayout = fitSingleLine(draft.subtype || '', SUBTYPE_RECT.width, 42, 16, 'Arial Black, Arial, sans-serif', 800);
+  const costLayout = fitSingleLine(draft.cost.trim() || '0', COST_RECT.width, 86, 24, "Georgia, 'Times New Roman', serif", 700);
+  const attackLayout = fitSingleLine(draft.attack.trim() || '0', ATTACK_VALUE_RECT.width, 62, 24, 'Arial Black, Arial, sans-serif', 900);
+  const healthLayout = fitSingleLine(draft.health.trim() || '0', HEALTH_VALUE_RECT.width, 62, 24, 'Arial Black, Arial, sans-serif', 900);
+  const textLayout = fitMultiline(draft.text || '', TEXT_RECT.width, TEXT_RECT.height, 44, 13, 'Arial, Helvetica, sans-serif', 700, 1.01);
 
-  const titleLayout = fitSingleLine(draft.name || 'Без названия', TITLE_RECT.width, 52, 26, 'Arial Black, Arial, sans-serif', 900);
-  const subtypeLayout = fitSingleLine(draft.subtype || '', SUBTYPE_RECT.width, 38, 20, 'Arial Black, Arial, sans-serif', 800);
-  const textLayout = fitMultiline(draft.text || '', TEXT_RECT.width, TEXT_RECT.height, 40, 18, 'Arial, Helvetica, sans-serif', 700, 1.08);
+  const attackIcon = await removeBlackBackground(battleAxeIcon);
+  const healthIcon = await removeBlackBackground(mineralHeartIcon);
 
-  let artMarkup = '';
+  let artMarkup = `<rect x="${artFrame.x}" y="${artFrame.y}" width="${artFrame.width}" height="${artFrame.height}" fill="#efefef"/>`;
 
-  if (imageData) {
+  if (draft.imageDataUrl) {
     const artImage = await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
       image.onload = () => resolve(image);
       image.onerror = () => reject(new Error('Не удалось открыть изображение для карты'));
-      image.src = imageData;
+      image.src = draft.imageDataUrl;
     });
 
-    const coverScale = Math.max(ART_RECT.width / artImage.width, ART_RECT.height / artImage.height);
+    const coverScale = Math.max(artFrame.width / artImage.width, artFrame.height / artImage.height);
     const scale = coverScale * draft.imageScale;
     const width = artImage.width * scale;
     const height = artImage.height * scale;
-    const x = ART_RECT.x + (ART_RECT.width - width) / 2 + draft.imageOffsetX;
-    const y = ART_RECT.y + (ART_RECT.height - height) / 2 + draft.imageOffsetY;
+    const x = artFrame.x + (artFrame.width - width) / 2 + draft.imageOffsetX;
+    const y = artFrame.y + (artFrame.height - height) / 2 + draft.imageOffsetY;
 
+    artMarkup = `<image href="${draft.imageDataUrl}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"/>`;
+  } else if (draft.type === 'sign' && draft.elements.length > 0) {
+    const sealIcon = sealIconByElement[draft.elements[0]];
     artMarkup = `
-      <image href="${imageData}" x="${x}" y="${y}" width="${width}" height="${height}" clip-path="url(#artClip)" preserveAspectRatio="none"/>
-    `;
-  } else if (draft.type === 'sign' && sealIcon) {
-    artMarkup = `
-      <rect x="${ART_RECT.x}" y="${ART_RECT.y}" width="${ART_RECT.width}" height="${ART_RECT.height}" fill="#0f172a" clip-path="url(#artClip)"/>
-      <image href="${sealIcon}" x="${ART_RECT.x + 148}" y="${ART_RECT.y + 104}" width="280" height="280" opacity="0.95" clip-path="url(#artClip)" preserveAspectRatio="xMidYMid meet"/>
+      <rect x="${artFrame.x}" y="${artFrame.y}" width="${artFrame.width}" height="${artFrame.height}" fill="#1f2937"/>
+      <image href="${sealIcon}" x="${SIGN_WATERMARK_RECT.x}" y="${SIGN_WATERMARK_RECT.y}" width="${SIGN_WATERMARK_RECT.width}" height="${SIGN_WATERMARK_RECT.height}" opacity="0.9" preserveAspectRatio="xMidYMid meet"/>
     `;
   }
 
-  const attackValue = draft.attack.trim() || '0';
-  const healthValue = draft.health.trim() || '0';
-  const costValue = draft.cost.trim() || '0';
   const showCost = draft.type !== 'sign';
   const showAttack = draft.type === 'monster';
   const showHealth = draft.type === 'monster' || draft.type === 'artifact';
   const showSubtype = Boolean(draft.subtype.trim());
-  const showEffect = Boolean(draft.text.trim());
+  const showText = Boolean(draft.text.trim());
+  const elementStackMarkup = buildElementStackMarkup(draft);
 
-  const textLinesMarkup = showEffect
+  const textMarkup = showText
     ? textLayout.lines
         .map((line, index) => {
-          const y = TEXT_RECT.y + 34 + index * textLayout.fontSize * 1.08;
-          return `<text x="${TEXT_RECT.x + TEXT_RECT.width / 2}" y="${y}" text-anchor="middle" font-size="${textLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111">${svgEscape(line || ' ')}</text>`;
+          const y = TEXT_RECT.y + textLayout.fontSize + index * textLayout.lineHeight;
+          return `<text x="${TEXT_RECT.x}" y="${y}" font-size="${textLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line || ' ')}</text>`;
         })
         .join('')
     : '';
 
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}">
-      <defs>
-        <clipPath id="artClip">
-          <rect x="${ART_RECT.x}" y="${ART_RECT.y}" width="${ART_RECT.width}" height="${ART_RECT.height}" rx="6" ry="6"/>
-        </clipPath>
-      </defs>
-
-      <image href="${template}" x="0" y="0" width="${CARD_WIDTH}" height="${CARD_HEIGHT}"/>
       ${artMarkup}
       <image href="${template}" x="0" y="0" width="${CARD_WIDTH}" height="${CARD_HEIGHT}"/>
+      ${elementStackMarkup}
 
-      ${elementIcon ? `<image href="${elementIcon}" x="${ICON_RECT.x}" y="${ICON_RECT.y}" width="${ICON_RECT.width}" height="${ICON_RECT.height}" preserveAspectRatio="xMidYMid meet"/>` : ''}
-      ${draft.type === 'sign' && sealIcon ? `<image href="${sealIcon}" x="550" y="792" width="112" height="112" opacity="0.92" preserveAspectRatio="xMidYMid meet"/>` : ''}
+      <text x="${TITLE_RECT.x + TITLE_RECT.width / 2}" y="${TITLE_RECT.y + TITLE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${titleLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#ffffff" stroke="#111111" stroke-width="6" paint-order="stroke fill">${svgEscape(draft.name || 'Без названия')}</text>
+      ${showSubtype ? `<text x="${SUBTYPE_RECT.x + SUBTYPE_RECT.width}" y="${SUBTYPE_RECT.y + SUBTYPE_RECT.height / 2 + 4}" text-anchor="end" dominant-baseline="middle" font-size="${subtypeLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="800" fill="#ffffff" stroke="#111111" stroke-width="4.5" paint-order="stroke fill">${svgEscape(draft.subtype)}</text>` : ''}
+      ${showCost ? `<text x="${COST_RECT.x + COST_RECT.width / 2}" y="${COST_RECT.y + COST_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${costLayout.fontSize}" font-family="Georgia, 'Times New Roman', serif" font-weight="700" fill="#111111">${svgEscape(draft.cost.trim() || '0')}</text>` : ''}
 
-      <text x="${TITLE_RECT.x + TITLE_RECT.width / 2}" y="90" text-anchor="middle" font-size="${titleLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#ffffff" stroke="#111111" stroke-width="7" paint-order="stroke fill">${svgEscape(draft.name || 'Без названия')}</text>
-      ${showSubtype ? `<text x="${SUBTYPE_RECT.x + SUBTYPE_RECT.width}" y="148" text-anchor="end" font-size="${subtypeLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="800" fill="#ffffff" stroke="#111111" stroke-width="5" paint-order="stroke fill">${svgEscape(draft.subtype)}</text>` : ''}
-      ${showCost ? `<text x="70" y="116" text-anchor="middle" font-size="74" font-family="Georgia, 'Times New Roman', serif" font-weight="700" fill="#111111">${svgEscape(costValue)}</text>` : ''}
-
-      ${showEffect ? textLinesMarkup : ''}
+      ${textMarkup}
 
       ${showAttack ? `
-        <image href="${battleAxeIcon}" x="28" y="856" width="96" height="96" preserveAspectRatio="xMidYMid meet"/>
-        <text x="77" y="935" text-anchor="middle" font-size="64" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#fff7ef" stroke="#7f0000" stroke-width="9" paint-order="stroke fill">${svgEscape(attackValue)}</text>
+        <image href="${attackIcon}" x="${ATTACK_ICON_RECT.x}" y="${ATTACK_ICON_RECT.y}" width="${ATTACK_ICON_RECT.width}" height="${ATTACK_ICON_RECT.height}" preserveAspectRatio="xMidYMid meet"/>
+        <text x="${ATTACK_VALUE_RECT.x + ATTACK_VALUE_RECT.width / 2}" y="${ATTACK_VALUE_RECT.y + ATTACK_VALUE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${attackLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#fff9f4" stroke="#7a0000" stroke-width="8" paint-order="stroke fill">${svgEscape(draft.attack.trim() || '0')}</text>
       ` : ''}
 
       ${showHealth ? `
-        <image href="${mineralHeartIcon}" x="88" y="906" width="96" height="96" preserveAspectRatio="xMidYMid meet"/>
-        <text x="137" y="985" text-anchor="middle" font-size="64" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#fff7ef" stroke="#7f0000" stroke-width="9" paint-order="stroke fill">${svgEscape(healthValue)}</text>
+        <image href="${healthIcon}" x="${HEALTH_ICON_RECT.x}" y="${HEALTH_ICON_RECT.y}" width="${HEALTH_ICON_RECT.width}" height="${HEALTH_ICON_RECT.height}" preserveAspectRatio="xMidYMid meet"/>
+        <text x="${HEALTH_VALUE_RECT.x + HEALTH_VALUE_RECT.width / 2}" y="${HEALTH_VALUE_RECT.y + HEALTH_VALUE_RECT.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${healthLayout.fontSize}" font-family="Arial Black, Arial, sans-serif" font-weight="900" fill="#fff9f4" stroke="#7a0000" stroke-width="8" paint-order="stroke fill">${svgEscape(draft.health.trim() || '0')}</text>
       ` : ''}
     </svg>
   `;
 };
 
-const svgToDataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+const createSvgObjectUrl = (svg: string) =>
+  URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
 
 const downloadPngFromSvg = async (svg: string, fileName: string) => {
   const image = new Image();
@@ -475,25 +611,32 @@ const downloadPngFromSvg = async (svg: string, fileName: string) => {
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Не удалось создать canvas для сохранения');
 
-  await new Promise<void>((resolve, reject) => {
-    image.onload = () => resolve();
-    image.onerror = () => reject(new Error('Не удалось подготовить изображение карты к скачиванию'));
-    image.src = svgToDataUrl(svg);
-  });
+  const svgUrl = createSvgObjectUrl(svg);
 
-  context.clearRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  context.drawImage(image, 0, 0, CARD_WIDTH, CARD_HEIGHT);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Не удалось подготовить изображение карты к скачиванию'));
+      image.src = svgUrl;
+    });
 
-  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) throw new Error('Не удалось сохранить PNG');
+    context.clearRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    context.drawImage(image, 0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `${sanitizeFileName(fileName)}.png`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Не удалось сохранить PNG');
+
+    const link = document.createElement('a');
+    const pngUrl = URL.createObjectURL(blob);
+    link.href = pngUrl;
+    link.download = `${sanitizeFileName(fileName)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
 };
 
 const CardForm: React.FC<{
@@ -506,9 +649,13 @@ const CardForm: React.FC<{
   batchMode: boolean;
 }> = ({ draft, onChange, onFileImage, onResolveUrl, imageBusy, imageError, batchMode }) => {
   const update = <K extends keyof CardDraft>(key: K, value: CardDraft[K]) => onChange({ ...draft, [key]: value });
+  const toggleElement = (element: RealElement) => {
+    const hasElement = draft.elements.includes(element);
+    update('elements', hasElement ? draft.elements.filter(current => current !== element) : [...draft.elements, element]);
+  };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label className="space-y-1">
           <span className="text-xs uppercase tracking-wide text-gray-500">Название</span>
@@ -519,18 +666,32 @@ const CardForm: React.FC<{
             placeholder="Название карты"
           />
         </label>
-        <label className="space-y-1">
-          <span className="text-xs uppercase tracking-wide text-gray-500">Элемент</span>
-          <select
-            className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white"
-            value={draft.element}
-            onChange={(e) => update('element', e.target.value as Element)}
-          >
-            {elementLabels.map(element => (
-              <option key={element} value={element}>{element}</option>
-            ))}
-          </select>
-        </label>
+        <div className="space-y-1">
+          <span className="text-xs uppercase tracking-wide text-gray-500">Элементы</span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${draft.elements.length === 0 ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+              onClick={() => update('elements', [])}
+            >
+              Нет элемента
+            </button>
+            {ELEMENT_OPTIONS.map(element => {
+              const active = draft.elements.includes(element);
+              return (
+                <button
+                  key={element}
+                  type="button"
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${active ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                  onClick={() => toggleElement(element)}
+                >
+                  {element}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-gray-500">Выбрано: {elementSummary(draft.elements)}. Можно выбрать несколько элементов — в таком случае значки будут располагаться столбиком один под другим.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -562,10 +723,11 @@ const CardForm: React.FC<{
         <label className="space-y-1 block">
           <span className="text-xs uppercase tracking-wide text-gray-500">Цена</span>
           <input
-            type="number"
+            type="text"
             className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white"
             value={draft.cost}
             onChange={(e) => update('cost', e.target.value)}
+            placeholder="1 / X / *"
           />
         </label>
       )}
@@ -575,10 +737,11 @@ const CardForm: React.FC<{
           <label className="space-y-1">
             <span className="text-xs uppercase tracking-wide text-gray-500">Здоровье</span>
             <input
-              type="number"
+              type="text"
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white"
               value={draft.health}
               onChange={(e) => update('health', e.target.value)}
+              placeholder="1 / X / *"
             />
           </label>
         )}
@@ -586,10 +749,11 @@ const CardForm: React.FC<{
           <label className="space-y-1">
             <span className="text-xs uppercase tracking-wide text-gray-500">Атака</span>
             <input
-              type="number"
+              type="text"
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white"
               value={draft.attack}
               onChange={(e) => update('attack', e.target.value)}
+              placeholder="1 / X / *"
             />
           </label>
         )}
@@ -603,7 +767,7 @@ const CardForm: React.FC<{
           onChange={(e) => update('text', e.target.value)}
           placeholder="Текст эффекта"
         />
-        <p className="text-[11px] text-gray-500">Текст автоматически уменьшается и укладывается в безопасную область, не заходя на золотой угол.</p>
+        <p className="text-[11px] text-gray-500">Текст автоматически переносится, умеет ломать слишком длинные слова и поджимается по размеру, чтобы не вылезать из текстового окна.</p>
       </label>
 
       <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-3 space-y-3">
@@ -654,7 +818,7 @@ const CardForm: React.FC<{
             >
               {imageBusy ? 'Загрузка...' : 'Загрузить изображение по ссылке'}
             </button>
-            <p className="text-[11px] text-gray-500">Если сайт запрещает кросс-доменные загрузки, используйте файл с устройства — так сохранение PNG сработает надёжнее.</p>
+            <p className="text-[11px] text-gray-500">Если сайт не разрешает кросс-доменные загрузки, используйте файл с устройства — так предпросмотр и экспорт PNG будут надёжнее.</p>
           </div>
         )}
 
@@ -665,8 +829,8 @@ const CardForm: React.FC<{
             <span className="text-xs uppercase tracking-wide text-gray-500">Смещение X</span>
             <input
               type="range"
-              min={-220}
-              max={220}
+              min={-260}
+              max={260}
               value={draft.imageOffsetX}
               onChange={(e) => update('imageOffsetX', Number(e.target.value))}
               className="w-full"
@@ -676,8 +840,8 @@ const CardForm: React.FC<{
             <span className="text-xs uppercase tracking-wide text-gray-500">Смещение Y</span>
             <input
               type="range"
-              min={-220}
-              max={220}
+              min={-260}
+              max={260}
               value={draft.imageOffsetY}
               onChange={(e) => update('imageOffsetY', Number(e.target.value))}
               className="w-full"
@@ -688,7 +852,7 @@ const CardForm: React.FC<{
             <input
               type="range"
               min={60}
-              max={220}
+              max={240}
               value={draft.imageScale * 100}
               onChange={(e) => update('imageScale', Number(e.target.value) / 100)}
               className="w-full"
@@ -698,7 +862,7 @@ const CardForm: React.FC<{
 
         <p className="text-[11px] text-gray-500">
           Перетаскивайте картинку прямо в превью справа. Ползунки дублируют ту же настройку и помогают точнее выставить кадр.
-          {batchMode && ' В пакетном режиме ссылка автоматически подхватывается из таблицы, но вы можете заменить её вручную для текущей карты.'}
+          {batchMode && ' В пакетном режиме ссылка из таблицы будет подхвачена автоматически, но вы можете заменить её вручную для текущей карты.'}
         </p>
       </div>
     </div>
@@ -720,10 +884,25 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
   const [previewUrl, setPreviewUrl] = useState('');
 
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const previewUrlRef = useRef('');
   const dragState = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const autoImageAttempts = useRef<Set<string>>(new Set());
 
   const currentBatchItem = activeBatchIndex !== null ? batchItems[activeBatchIndex] : null;
+
+  const saveCurrentBatchDraft = (nextDraft: CardDraft) => {
+    if (activeBatchIndex === null) return;
+    setBatchItems(prev => prev.map((item, index) => (
+      index === activeBatchIndex ? { ...item, draft: nextDraft, missingFields: getMissingFields(nextDraft) } : item
+    )));
+  };
+
+  const setDraftAndPersist = (nextDraft: CardDraft) => {
+    setDraft(nextDraft);
+    if (activeBatchIndex !== null) {
+      saveCurrentBatchDraft(nextDraft);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -732,11 +911,19 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
       try {
         const svg = await buildCardSvg(draft);
         if (cancelled) return;
-        setPreviewUrl(svgToDataUrl(svg));
+        const nextPreviewUrl = createSvgObjectUrl(svg);
+        if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = nextPreviewUrl;
+        setPreviewUrl(nextPreviewUrl);
       } catch (error) {
-        if (cancelled) return;
-        setPreviewUrl('');
-        setModalError(error instanceof Error ? error.message : 'Не удалось собрать превью карты');
+        if (!cancelled) {
+          if (previewUrlRef.current) {
+            URL.revokeObjectURL(previewUrlRef.current);
+            previewUrlRef.current = '';
+          }
+          setPreviewUrl('');
+          setModalError(error instanceof Error ? error.message : 'Не удалось собрать превью карты');
+        }
       }
     };
 
@@ -747,6 +934,13 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
       cancelled = true;
     };
   }, [draft]);
+
+  useEffect(() => () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = '';
+    }
+  }, []);
 
   useEffect(() => {
     if (
@@ -782,17 +976,13 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     return getMissingFields(draft);
   }, [currentBatchItem, draft]);
 
-  const handleClose = () => {
-    onClose();
-  };
-
   const resolveUrlImage = async () => {
     if (!draft.imageUrl.trim()) return;
     setImageBusy(true);
     setImageError('');
     try {
       const dataUrl = await urlToDataUrl(draft.imageUrl.trim());
-      setDraft(prev => ({ ...prev, imageDataUrl: dataUrl, imageMode: 'url' }));
+      setDraftAndPersist({ ...draft, imageDataUrl: dataUrl, imageMode: 'url' });
     } catch (error) {
       setImageError(error instanceof Error ? error.message : 'Не удалось загрузить изображение по ссылке');
     } finally {
@@ -805,33 +995,19 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     setImageError('');
     try {
       const dataUrl = await fileToDataUrl(file);
-      setDraft(prev => ({
-        ...prev,
+      setDraftAndPersist({
+        ...draft,
         imageDataUrl: dataUrl,
         imageUrl: file.name,
         imageMode: 'upload',
         imageOffsetX: 0,
         imageOffsetY: 0,
         imageScale: 1,
-      }));
+      });
     } catch (error) {
       setImageError(error instanceof Error ? error.message : 'Не удалось загрузить изображение');
     } finally {
       setImageBusy(false);
-    }
-  };
-
-  const saveCurrentBatchDraft = (nextDraft: CardDraft) => {
-    if (activeBatchIndex === null) return;
-    setBatchItems(prev => prev.map((item, index) => (
-      index === activeBatchIndex ? { ...item, draft: nextDraft, missingFields: getMissingFields(nextDraft) } : item
-    )));
-  };
-
-  const setDraftAndPersist = (nextDraft: CardDraft) => {
-    setDraft(nextDraft);
-    if (activeBatchIndex !== null) {
-      saveCurrentBatchDraft(nextDraft);
     }
   };
 
@@ -853,8 +1029,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     let index = startIndex;
     while (index < items.length) {
       const item = items[index];
-      const needsManual = item.missingFields.length > 0;
-      if (needsManual) {
+      if (item.missingFields.length > 0) {
         setActiveBatchIndex(index);
         setDraft(item.draft);
         setBatchStatus(`Карточка ${index + 1}/${items.length}: заполните недостающие поля (${item.missingFields.join(', ')})`);
@@ -887,10 +1062,8 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
 
   const startBatchFromRows = async (rows: any[][]) => {
     const items = parseBatchItems(rows);
-    if (items.length === 0) {
-      throw new Error('В таблице не найдено карточек');
-    }
-
+    if (items.length === 0) throw new Error('В таблице не найдено карточек');
+    autoImageAttempts.current.clear();
     setBatchItems(items);
     setMode('batch');
     setImageError('');
@@ -901,8 +1074,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     setLoadingBatch(true);
     setModalError('');
     try {
-      const rows = await readSheetDataFromFile(file);
-      await startBatchFromRows(rows);
+      await startBatchFromRows(await readSheetDataFromFile(file));
     } catch (error) {
       setModalError(error instanceof Error ? error.message : 'Не удалось открыть таблицу');
     } finally {
@@ -915,8 +1087,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     setLoadingBatch(true);
     setModalError('');
     try {
-      const rows = await readSheetDataFromGoogle(batchUrl.trim());
-      await startBatchFromRows(rows);
+      await startBatchFromRows(await readSheetDataFromGoogle(batchUrl.trim()));
     } catch (error) {
       setModalError(error instanceof Error ? error.message : 'Не удалось загрузить таблицу');
     } finally {
@@ -962,7 +1133,19 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     }
   };
 
+  const clearCurrent = () => {
+    const freshDraft = makeEmptyDraft();
+    setImageError('');
+    setModalError('');
+    setDraft(freshDraft);
+    if (mode === 'batch' && activeBatchIndex !== null) {
+      saveCurrentBatchDraft(freshDraft);
+      setBatchStatus('Текущая карточка очищена вручную.');
+    }
+  };
+
   const resetBatchQueue = () => {
+    autoImageAttempts.current.clear();
     setMode('batch');
     setDraft(makeEmptyDraft());
     setActiveBatchIndex(null);
@@ -976,10 +1159,11 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     const rect = previewRef.current.getBoundingClientRect();
     const scaleX = rect.width / CARD_WIDTH;
     const scaleY = rect.height / CARD_HEIGHT;
+    const artFrame = ART_FRAME_BY_TYPE[draft.type];
     const localX = (event.clientX - rect.left) / scaleX;
     const localY = (event.clientY - rect.top) / scaleY;
-    const insideArt = localX >= ART_RECT.x && localX <= ART_RECT.x + ART_RECT.width && localY >= ART_RECT.y && localY <= ART_RECT.y + ART_RECT.height;
-    if (!insideArt || (!draft.imageDataUrl && !draft.imageUrl.trim())) return;
+    const insideArt = localX >= artFrame.x && localX <= artFrame.x + artFrame.width && localY >= artFrame.y && localY <= artFrame.y + artFrame.height;
+    if (!insideArt || !draft.imageDataUrl) return;
 
     dragState.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -994,8 +1178,8 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
 
     setDraftAndPersist({
       ...draft,
-      imageOffsetX: clamp(draft.imageOffsetX + dx, -260, 260),
-      imageOffsetY: clamp(draft.imageOffsetY + dy, -260, 260),
+      imageOffsetX: clamp(draft.imageOffsetX + dx, -320, 320),
+      imageOffsetY: clamp(draft.imageOffsetY + dy, -320, 320),
     });
   };
 
@@ -1014,9 +1198,9 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
         <div className="flex items-center justify-between gap-4 border-b border-gray-800 px-4 py-3 md:px-6">
           <div>
             <h2 className="text-lg md:text-xl font-black text-yellow-400">🖼 Создать Карту</h2>
-            <p className="text-sm text-gray-400">В конструкторе я добавил ещё два обязательных для макета поля, которых не было в списке: название и элемент.</p>
+            <p className="text-sm text-gray-400">Исправил разметку, подогнал безопасные зоны текста и добавил мульти-элементы. При необходимости ещё могу докрутить позиционирование по вашим новым примерам.</p>
           </div>
-          <button className="text-2xl text-gray-500 hover:text-white" onClick={handleClose}>✕</button>
+          <button className="text-2xl text-gray-500 hover:text-white" onClick={onClose}>✕</button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-gray-800 px-4 py-3 md:px-6">
@@ -1062,9 +1246,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                         className="block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:font-semibold file:text-white hover:file:bg-blue-500"
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            await handleBatchFile(file);
-                          }
+                          if (file) await handleBatchFile(file);
                         }}
                         disabled={loadingBatch}
                       />
@@ -1146,14 +1328,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                 )}
                 <button
                   className="rounded-xl bg-gray-800 px-5 py-3 text-sm font-bold text-gray-200 hover:bg-gray-700"
-                  onClick={() => {
-                    setImageError('');
-                    setModalError('');
-                    setDraft(makeEmptyDraft());
-                    if (mode === 'batch' && activeBatchIndex !== null) {
-                      setBatchStatus('Текущая карточка очищена вручную.');
-                    }
-                  }}
+                  onClick={clearCurrent}
                 >
                   Очистить форму
                 </button>
@@ -1180,20 +1355,20 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                   )}
                 </div>
                 <div className="mt-3 text-xs text-gray-500 space-y-1">
-                  <p>• Перетащите картинку прямо по окну арта, чтобы выставить кадр.</p>
-                  <p>• Для надёжного массового скачивания браузер может попросить разрешить несколько загрузок.</p>
-                  <p>• Тип <b>sign</b> использует приложенные «seal» иконки как визуальный акцент поверх макета.</p>
+                  <p>• Перетаскивайте картинку прямо по окну арта, чтобы выставить кадр.</p>
+                  <p>• Цена, атака и здоровье теперь принимают и буквы / символы вроде <b>X</b> и <b>*</b>.</p>
+                  <p>• Элементы можно выбирать несколько разом — они встанут столбиком в левой плашке.</p>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-4 text-sm text-gray-300">
-                <h3 className="mb-2 text-base font-bold text-white">Что умеет конструктор</h3>
+                <h3 className="mb-2 text-base font-bold text-white">Что уже поправлено</h3>
                 <ul className="list-disc space-y-1 pl-5">
-                  <li>Создание одной карты вручную с instant-preview.</li>
-                  <li>Изображение с устройства или по ссылке, с перемещением и масштабом.</li>
-                  <li>Автоподбор размера текста для названия, подтипа и эффекта.</li>
-                  <li>Пакетная обработка таблиц в формате вашей базы карт.</li>
-                  <li>Если строка неполная — конструктор останавливается на ней и просит заполнить недостающее.</li>
+                  <li>окно арта теперь подгоняется под реальные прозрачные рамки шаблона;</li>
+                  <li>подтип опущен ниже и лучше центрируется;</li>
+                  <li>текст умеет ужиматься и переносить длинные слова;</li>
+                  <li>иконки атаки и здоровья автоматически очищаются от чёрного фона;</li>
+                  <li>статы и цена масштабируются под доступное место.</li>
                 </ul>
               </div>
             </div>
