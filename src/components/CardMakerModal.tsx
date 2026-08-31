@@ -71,7 +71,7 @@ const ATTACK_VALUE_RECT: Rect = { x: px(7), y: py(83), width: px(7), height: py(
 const HEALTH_ICON_RECT: Rect = { x: px(14), y: py(88.5), width: px(11), height: py(11) };
 const HEALTH_VALUE_RECT: Rect = { x: px(16), y: py(90.5), width: px(7), height: py(7) };
 const SIGN_ELEMENT_AREA_RECT: Rect = { x: px(0.9), y: py(21.5), width: px(14), height: py(60) };
-const NON_SIGN_ELEMENT_AREA_RECT: Rect = { x: px(-0.4), y: py(18.7), width: px(14), height: py(60) };
+const NON_SIGN_ELEMENT_AREA_RECT: Rect = { x: px(0.3), y: py(18.7), width: px(14), height: py(60) };
 const ELEMENT_SLOT_RECT: Rect = { x: 0, y: 0, width: px(14), height: py(14) };
 const LOWER_LEFT_CORNER_DIAGONAL = {
   x1: px(2.5),
@@ -403,42 +403,43 @@ const fitTextToShapedArea = (
         continue;
       }
 
-      const words = paragraph.split(/\s+/).filter(Boolean);
-      let currentLine = '';
-
-      const appendWord = (word: string) => {
+      let remaining = paragraph;
+      while (remaining.length > 0) {
         const { width } = lineMetrics(lines.length);
-        const candidate = currentLine ? `${currentLine} ${word}` : word;
 
-        if (ctx.measureText(candidate).width <= width) {
-          currentLine = candidate;
-          return;
+        if (ctx.measureText(remaining).width <= width) {
+          pushLine(remaining);
+          remaining = '';
+          break;
         }
 
-        if (currentLine) {
-          pushLine(currentLine);
-          currentLine = '';
-          appendWord(word);
-          return;
-        }
-
-        const chunks = splitLongToken(ctx, word, width);
-        chunks.forEach((chunk, chunkIndex) => {
-          const metrics = lineMetrics(lines.length);
-          if (ctx.measureText(chunk).width <= metrics.width) {
-            currentLine = chunk;
-            if (chunkIndex < chunks.length - 1) {
-              pushLine(currentLine);
-              currentLine = '';
-            }
-          } else {
-            currentLine = chunk;
+        let fitted = '';
+        let lastSpaceIndex = -1;
+        for (let index = 0; index < remaining.length; index += 1) {
+          const candidate = remaining.slice(0, index + 1);
+          if (candidate.trimEnd().endsWith(' ')) {
+            lastSpaceIndex = index;
           }
-        });
-      };
 
-      words.forEach(appendWord);
-      if (currentLine) pushLine(currentLine);
+          if (ctx.measureText(candidate).width > width) {
+            break;
+          }
+          fitted = candidate;
+        }
+
+        if (!fitted) {
+          const chunks = splitLongToken(ctx, remaining, width);
+          fitted = chunks[0] || remaining[0];
+        } else if (lastSpaceIndex > 0) {
+          const spacedFit = remaining.slice(0, lastSpaceIndex + 1).trimEnd();
+          if (spacedFit) {
+            fitted = spacedFit;
+          }
+        }
+
+        pushLine(fitted);
+        remaining = remaining.slice(fitted.length).replace(/^\s+/, '');
+      }
     }
 
     return { fontSize, lineHeight, lines };
@@ -583,7 +584,7 @@ const buildCardSvg = async (draft: CardDraft) => {
     effectText,
     textRect,
     draft.type === 'artifact' ? 27 : 31,
-    12,
+    9,
     'Arial, Helvetica, sans-serif',
     700,
     1.04,
