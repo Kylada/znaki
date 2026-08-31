@@ -64,13 +64,14 @@ const py = (percent: number) => (CARD_HEIGHT * percent) / 100;
 const TITLE_RECT: Rect = { x: px(32), y: py(4), width: px(61), height: py(6) };
 const SUBTYPE_RECT: Rect = { x: px(30), y: py(11), width: px(62), height: py(7) };
 const COST_RECT: Rect = { x: px(4.5), y: py(1.75), width: px(15), height: py(15) };
-const DEFAULT_TEXT_RECT: Rect = { x: px(26), y: py(69), width: px(65), height: py(24) };
-const ARTIFACT_TEXT_RECT: Rect = { x: px(17), y: py(68), width: px(75), height: py(25) };
+const DEFAULT_TEXT_RECT: Rect = { x: px(21), y: py(69), width: px(70), height: py(24) };
+const ARTIFACT_TEXT_RECT: Rect = { x: px(15), y: py(68), width: px(77), height: py(25) };
 const ATTACK_ICON_RECT: Rect = { x: px(5), y: py(81), width: px(10), height: py(10) };
 const ATTACK_VALUE_RECT: Rect = { x: px(7), y: py(83), width: px(7), height: py(7) };
 const HEALTH_ICON_RECT: Rect = { x: px(14), y: py(88.5), width: px(11), height: py(11) };
 const HEALTH_VALUE_RECT: Rect = { x: px(16), y: py(90.5), width: px(7), height: py(7) };
-const ELEMENT_AREA_RECT: Rect = { x: px(0.9), y: py(21.5), width: px(14), height: py(60) };
+const SIGN_ELEMENT_AREA_RECT: Rect = { x: px(0.9), y: py(21.5), width: px(14), height: py(60) };
+const NON_SIGN_ELEMENT_AREA_RECT: Rect = { x: px(0.3), y: py(19.6), width: px(14), height: py(60) };
 const ELEMENT_SLOT_RECT: Rect = { x: 0, y: 0, width: px(14), height: py(14) };
 
 const ART_FRAME_BY_TYPE: Record<CardType, Rect> = {
@@ -494,15 +495,17 @@ const parseBatchItems = (rows: any[][]): BatchItem[] => {
 const buildElementStackMarkup = (draft: CardDraft) => {
   if (draft.elements.length === 0) return '';
 
-  const iconSet = draft.type === 'sign' ? signElementIconByElement : elementIconByElement;
-  const slotX = ELEMENT_AREA_RECT.x;
+  const isSign = draft.type === 'sign';
+  const iconSet = isSign ? signElementIconByElement : elementIconByElement;
+  const area = isSign ? SIGN_ELEMENT_AREA_RECT : NON_SIGN_ELEMENT_AREA_RECT;
+  const slotX = area.x;
   const slotW = ELEMENT_SLOT_RECT.width;
   const slotH = ELEMENT_SLOT_RECT.height;
-  const step = slotH * 0.86;
+  const step = isSign ? slotH * 0.86 : slotH * 0.72;
 
   return draft.elements
     .map((element, index) => {
-      const slotY = ELEMENT_AREA_RECT.y + step * index;
+      const slotY = area.y + step * index;
       return `<image href="${iconSet[element]}" x="${slotX}" y="${slotY}" width="${slotW}" height="${slotH}" preserveAspectRatio="xMidYMid meet"/>`;
     })
     .join('');
