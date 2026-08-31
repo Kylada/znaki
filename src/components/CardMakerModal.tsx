@@ -64,15 +64,22 @@ const py = (percent: number) => (CARD_HEIGHT * percent) / 100;
 const TITLE_RECT: Rect = { x: px(32), y: py(4), width: px(61), height: py(6) };
 const SUBTYPE_RECT: Rect = { x: px(30), y: py(11), width: px(62), height: py(7) };
 const COST_RECT: Rect = { x: px(4.5), y: py(1.75), width: px(15), height: py(15) };
-const DEFAULT_TEXT_RECT: Rect = { x: px(21), y: py(69), width: px(70), height: py(24) };
-const ARTIFACT_TEXT_RECT: Rect = { x: px(15), y: py(68), width: px(77), height: py(25) };
+const DEFAULT_TEXT_RECT: Rect = { x: px(18.5), y: py(69), width: px(72.5), height: py(24) };
+const ARTIFACT_TEXT_RECT: Rect = { x: px(13.5), y: py(68), width: px(78.5), height: py(25) };
 const ATTACK_ICON_RECT: Rect = { x: px(5), y: py(81), width: px(10), height: py(10) };
 const ATTACK_VALUE_RECT: Rect = { x: px(7), y: py(83), width: px(7), height: py(7) };
 const HEALTH_ICON_RECT: Rect = { x: px(14), y: py(88.5), width: px(11), height: py(11) };
 const HEALTH_VALUE_RECT: Rect = { x: px(16), y: py(90.5), width: px(7), height: py(7) };
 const SIGN_ELEMENT_AREA_RECT: Rect = { x: px(0.9), y: py(21.5), width: px(14), height: py(60) };
-const NON_SIGN_ELEMENT_AREA_RECT: Rect = { x: px(0.3), y: py(19.6), width: px(14), height: py(60) };
+const NON_SIGN_ELEMENT_AREA_RECT: Rect = { x: px(-0.4), y: py(18.7), width: px(14), height: py(60) };
 const ELEMENT_SLOT_RECT: Rect = { x: 0, y: 0, width: px(14), height: py(14) };
+const LOWER_LEFT_CORNER_DIAGONAL = {
+  x1: px(2.5),
+  y1: py(75),
+  x2: px(36),
+  y2: py(97.5),
+};
+const LOWER_LEFT_CORNER_PADDING = 8;
 
 const ART_FRAME_BY_TYPE: Record<CardType, Rect> = {
   monster: { x: 106, y: 198, width: 597, height: 490 },
@@ -312,51 +319,6 @@ const splitLongToken = (ctx: CanvasRenderingContext2D, token: string, maxWidth: 
   return parts;
 };
 
-const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
-  const paragraphs = text.replace(/\r/g, '').split('\n');
-  const lines: string[] = [];
-
-  paragraphs.forEach((paragraph, paragraphIndex) => {
-    if (!paragraph.trim()) {
-      lines.push('');
-    } else {
-      const tokens = paragraph.match(/\S+|\s+/g) || [paragraph];
-      let currentLine = '';
-
-      tokens.forEach(token => {
-        if (!token.trim()) {
-          if (currentLine && ctx.measureText(currentLine + token).width <= maxWidth) {
-            currentLine += token;
-          }
-          return;
-        }
-
-        const chunks = ctx.measureText(token).width > maxWidth ? splitLongToken(ctx, token, maxWidth) : [token];
-        chunks.forEach((chunk, chunkIndex) => {
-          const candidate = currentLine ? `${currentLine}${chunk}` : chunk;
-          if (ctx.measureText(candidate).width <= maxWidth) {
-            currentLine = candidate;
-          } else {
-            if (currentLine) lines.push(currentLine.trimEnd());
-            currentLine = chunk;
-          }
-
-          if (chunkIndex < chunks.length - 1) {
-            lines.push(currentLine.trimEnd());
-            currentLine = '';
-          }
-        });
-      });
-
-      if (currentLine) lines.push(currentLine.trimEnd());
-    }
-
-    if (paragraphIndex < paragraphs.length - 1) lines.push('');
-  });
-
-  return lines;
-};
-
 const fitSingleLine = (
   text: string,
   width: number,
@@ -378,31 +340,118 @@ const fitSingleLine = (
   return { fontSize: minFont };
 };
 
-const fitMultiline = (
+const getCornerSafeLeft = (baselineY: number, defaultLeft: number) => {
+  const { x1, y1, x2, y2 } = LOWER_LEFT_CORNER_DIAGONAL;
+  if (baselineY <= y1) return defaultLeft;
+  if (baselineY >= y2) return Math.max(defaultLeft, x2 + LOWER_LEFT_CORNER_PADDING);
+
+  const ratio = (baselineY - y1) / (y2 - y1);
+  const diagonalX = x1 + (x2 - x1) * ratio;
+  return Math.max(defaultLeft, diagonalX + LOWER_LEFT_CORNER_PADDING);
+};
+
+const fitTextToShapedArea = (
   text: string,
-  width: number,
-  height: number,
+  rect: Rect,
   maxFont: number,
   minFont: number,
   fontFamily: string,
   weight = 700,
   lineHeightMultiplier = 1.04,
+  align: 'left' | 'center' = 'center',
+  avoidLowerLeftCorner = false,
 ) => {
   const ctx = createMeasureContext();
-  if (!ctx) return { fontSize: minFont, lines: [text], lineHeight: minFont * lineHeightMultiplier };
+  if (!ctx) {
+    return {
+      fontSize: minFont,
+      lineHeight: minFont * lineHeightMultiplier,
+      lines: [{ text, x: rect.x, y: rect.y + minFont, anchor: align === 'center' ? 'middle' as const : 'start' as const }],
+    };
+  }
+
+  const buildLayout = (fontSize: number) => {
+    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+    const lineHeight = fontSize * lineHeightMultiplier;
+    const right = rect.x + rect.width;
+    const lines: { text: string; x: number; y: number; anchor: 'start' | 'middle' }[] = [];
+
+    const lineMetrics = (lineIndex: number) => {
+      const baselineY = rect.y + fontSize + lineIndex * lineHeight;
+      const left = avoidLowerLeftCorner ? getCornerSafeLeft(baselineY, rect.x) : rect.x;
+      return {
+        baselineY,
+        left,
+        width: Math.max(16, right - left),
+      };
+    };
+
+    const pushLine = (value: string) => {
+      const lineIndex = lines.length;
+      const { baselineY, left, width } = lineMetrics(lineIndex);
+      lines.push({
+        text: value.trimEnd(),
+        x: align === 'center' ? left + width / 2 : left,
+        y: baselineY,
+        anchor: align === 'center' ? 'middle' : 'start',
+      });
+    };
+
+    for (const paragraph of text.replace(/\r/g, '').split('\n')) {
+      if (!paragraph.trim()) {
+        pushLine('');
+        continue;
+      }
+
+      const words = paragraph.split(/\s+/).filter(Boolean);
+      let currentLine = '';
+
+      const appendWord = (word: string) => {
+        const { width } = lineMetrics(lines.length);
+        const candidate = currentLine ? `${currentLine} ${word}` : word;
+
+        if (ctx.measureText(candidate).width <= width) {
+          currentLine = candidate;
+          return;
+        }
+
+        if (currentLine) {
+          pushLine(currentLine);
+          currentLine = '';
+          appendWord(word);
+          return;
+        }
+
+        const chunks = splitLongToken(ctx, word, width);
+        chunks.forEach((chunk, chunkIndex) => {
+          const metrics = lineMetrics(lines.length);
+          if (ctx.measureText(chunk).width <= metrics.width) {
+            currentLine = chunk;
+            if (chunkIndex < chunks.length - 1) {
+              pushLine(currentLine);
+              currentLine = '';
+            }
+          } else {
+            currentLine = chunk;
+          }
+        });
+      };
+
+      words.forEach(appendWord);
+      if (currentLine) pushLine(currentLine);
+    }
+
+    return { fontSize, lineHeight, lines };
+  };
 
   for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
-    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
-    const lines = wrapText(ctx, text, width);
-    const lineHeight = fontSize * lineHeightMultiplier;
-    if (lines.length * lineHeight <= height) {
-      return { fontSize, lines, lineHeight };
+    const layout = buildLayout(fontSize);
+    if (layout.lines.length * layout.lineHeight <= rect.height) {
+      return layout;
     }
   }
 
-  ctx.font = `${weight} ${minFont}px ${fontFamily}`;
-  const lines = wrapText(ctx, text, width);
-  return { fontSize: minFont, lines, lineHeight: minFont * lineHeightMultiplier };
+  return buildLayout(minFont);
 };
 
 const readSheetDataFromFile = async (file: File): Promise<any[][]> => {
@@ -498,15 +547,14 @@ const buildElementStackMarkup = (draft: CardDraft) => {
   const isSign = draft.type === 'sign';
   const iconSet = isSign ? signElementIconByElement : elementIconByElement;
   const area = isSign ? SIGN_ELEMENT_AREA_RECT : NON_SIGN_ELEMENT_AREA_RECT;
-  const slotX = area.x;
   const slotW = ELEMENT_SLOT_RECT.width;
   const slotH = ELEMENT_SLOT_RECT.height;
-  const step = isSign ? slotH * 0.86 : slotH * 0.72;
+  const step = isSign ? slotH * 0.86 : slotH * 0.6;
 
   return draft.elements
     .map((element, index) => {
       const slotY = area.y + step * index;
-      return `<image href="${iconSet[element]}" x="${slotX}" y="${slotY}" width="${slotW}" height="${slotH}" preserveAspectRatio="xMidYMid meet"/>`;
+      return `<image href="${iconSet[element]}" x="${area.x}" y="${slotY}" width="${slotW}" height="${slotH}" preserveAspectRatio="xMidYMid meet"/>`;
     })
     .join('');
 };
@@ -531,7 +579,17 @@ const buildCardSvg = async (draft: CardDraft) => {
   const costLayout = fitSingleLine(costText, COST_RECT.width * 0.82, 96, 26, "Georgia, 'Times New Roman', serif", 700);
   const attackLayout = fitSingleLine(attackText, ATTACK_VALUE_RECT.width * 0.9, 68, 22, 'Arial Black, Arial, sans-serif', 900);
   const healthLayout = fitSingleLine(healthText, HEALTH_VALUE_RECT.width * 0.9, 68, 22, 'Arial Black, Arial, sans-serif', 900);
-  const effectLayout = fitMultiline(effectText, textRect.width, textRect.height, draft.type === 'artifact' ? 27 : 31, 12, 'Arial, Helvetica, sans-serif', 700, 1.04);
+  const effectLayout = fitTextToShapedArea(
+    effectText,
+    textRect,
+    draft.type === 'artifact' ? 27 : 31,
+    12,
+    'Arial, Helvetica, sans-serif',
+    700,
+    1.04,
+    effectAlignment,
+    draft.type !== 'sign',
+  );
 
   let underlay = '';
 
@@ -553,13 +611,9 @@ const buildCardSvg = async (draft: CardDraft) => {
 
   const effectMarkup = effectText
     ? effectLayout.lines
-        .map((line, index) => {
-          const y = textRect.y + effectLayout.fontSize + index * effectLayout.lineHeight;
-          if (effectAlignment === 'center') {
-            return `<text x="${textRect.x + textRect.width / 2}" y="${y}" text-anchor="middle" font-size="${effectLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line || ' ')}</text>`;
-          }
-          return `<text x="${textRect.x}" y="${y}" font-size="${effectLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line || ' ')}</text>`;
-        })
+        .map(line =>
+          `<text x="${line.x}" y="${line.y}" text-anchor="${line.anchor}" font-size="${effectLayout.fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#111111">${svgEscape(line.text || ' ')}</text>`
+        )
         .join('')
     : '';
 
