@@ -224,9 +224,64 @@ const sanitizeFileName = (value: string) =>
     .replace(/\s+/g, '_')
     .slice(0, 80) || 'znaki-card';
 
+const elementCodeByElement: Record<RealElement, string> = {
+  Хаос: 'A',
+  Порядок: 'B',
+  Жизнь: 'C',
+  Свет: 'D',
+  Смерть: 'E',
+  Тьма: 'F',
+};
+
+const elementDecyphByElement: Record<RealElement, string> = {
+  Хаос: 'Chaos',
+  Порядок: 'Order',
+  Жизнь: 'Life',
+  Свет: 'Light',
+  Смерть: 'Death',
+  Тьма: 'Darkness',
+};
+
+const cardTypeExportLabel: Record<CardType, string> = {
+  monster: 'Monster',
+  spell: 'Spell',
+  artifact: 'Artifact',
+  sign: 'Sign',
+};
+
 const numberToString = (value: unknown, fallback = '') => {
   if (value === null || value === undefined || value === '') return fallback;
   return String(value).trim();
+};
+
+const downloadTextFile = (fileName: string, content: string) => {
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+const toSpreadsheetRow = (draft: CardDraft) => {
+  const headers = ['Number', 'Element', 'Name', 'Card Type', 'Element decyph', 'Cost', 'Attack', 'Health', 'img', 'Effect', 'imgbb', 'Subtype'];
+  const values = [
+    draft.number.trim(),
+    draft.elements.map(element => elementCodeByElement[element]).join('/'),
+    draft.name.trim(),
+    cardTypeExportLabel[draft.type],
+    draft.elements.map(element => elementDecyphByElement[element]).join('/'),
+    draft.cost.trim(),
+    draft.attack.trim(),
+    draft.health.trim(),
+    draft.imageMode === 'upload' ? '' : draft.imageUrl.trim(),
+    draft.text.replace(/\r/g, ' ').replace(/\n/g, ' '),
+    draft.imageMode === 'upload' ? '' : draft.imageUrl.trim(),
+    draft.subtype.trim(),
+  ];
+  return `${headers.join('\t')}\n${values.join('\t')}\n`;
 };
 
 const fileToDataUrl = (file: File) =>
@@ -319,6 +374,42 @@ const splitLongToken = (ctx: CanvasRenderingContext2D, token: string, maxWidth: 
   return parts;
 };
 
+const trimTextToWidth = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  suffix = '',
+  preferSpace = true,
+) => {
+  const cleaned = text.trimEnd();
+  if (!cleaned) return '';
+  if (ctx.measureText(cleaned + suffix).width <= maxWidth) return cleaned;
+
+  let fitted = '';
+  for (let index = 0; index < cleaned.length; index += 1) {
+    const candidate = cleaned.slice(0, index + 1);
+    if (ctx.measureText(candidate + suffix).width > maxWidth) break;
+    fitted = candidate;
+  }
+
+  if (!fitted) {
+    const chunks = splitLongToken(ctx, cleaned, Math.max(4, maxWidth - ctx.measureText(suffix).width));
+    return (chunks[0] || '').trimEnd();
+  }
+
+  if (preferSpace) {
+    const spaceIndex = fitted.lastIndexOf(' ');
+    if (spaceIndex > 0) {
+      const byWord = fitted.slice(0, spaceIndex).trimEnd();
+      if (byWord && ctx.measureText(byWord + suffix).width <= maxWidth) {
+        return byWord;
+      }
+    }
+  }
+
+  return fitted.trimEnd();
+};
+
 const fitSingleLine = (
   text: string,
   width: number,
@@ -374,6 +465,7 @@ const fitTextToShapedArea = (
     ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
     const lineHeight = fontSize * lineHeightMultiplier;
     const right = rect.x + rect.width;
+    const maxLines = Math.max(1, Math.floor(rect.height / lineHeight));
     const lines: { text: string; x: number; y: number; anchor: 'start' | 'middle' }[] = [];
 
     const lineMetrics = (lineIndex: number) => {
@@ -397,14 +489,28 @@ const fitTextToShapedArea = (
       });
     };
 
+    const pushTruncatedTail = (value: string) => {
+      const lineIndex = Math.max(0, maxLines - 1);
+      const { width } = lineMetrics(lineIndex);
+      const trimmed = trimTextToWidth(ctx, value, width, '…', true);
+      pushLine(trimmed ? `${trimmed}…` : '…');
+    };
+
     for (const paragraph of text.replace(/\r/g, '').split('\n')) {
+      if (lines.length >= maxLines) break;
+
       if (!paragraph.trim()) {
+        if (lines.length === maxLines - 1) {
+          pushLine('');
+          break;
+        }
         pushLine('');
         continue;
       }
 
       let remaining = paragraph;
-      while (remaining.length > 0) {
+      while (remaining.length > 0 && lines.length < maxLines) {
+        const isLastAvailableLine = lines.length === maxLines - 1;
         const { width } = lineMetrics(lines.length);
 
         if (ctx.measureText(remaining).width <= width) {
@@ -413,28 +519,16 @@ const fitTextToShapedArea = (
           break;
         }
 
-        let fitted = '';
-        let lastSpaceIndex = -1;
-        for (let index = 0; index < remaining.length; index += 1) {
-          const candidate = remaining.slice(0, index + 1);
-          if (candidate.trimEnd().endsWith(' ')) {
-            lastSpaceIndex = index;
-          }
-
-          if (ctx.measureText(candidate).width > width) {
-            break;
-          }
-          fitted = candidate;
+        if (isLastAvailableLine) {
+          pushTruncatedTail(remaining);
+          remaining = '';
+          break;
         }
 
+        let fitted = trimTextToWidth(ctx, remaining, width, '', true);
         if (!fitted) {
           const chunks = splitLongToken(ctx, remaining, width);
           fitted = chunks[0] || remaining[0];
-        } else if (lastSpaceIndex > 0) {
-          const spacedFit = remaining.slice(0, lastSpaceIndex + 1).trimEnd();
-          if (spacedFit) {
-            fitted = spacedFit;
-          }
         }
 
         pushLine(fitted);
@@ -618,9 +712,18 @@ const buildCardSvg = async (draft: CardDraft) => {
         .join('')
     : '';
 
+  const artClipDefs = draft.type !== 'sign'
+    ? `<defs><clipPath id="artClip"><rect x="${artFrame.x}" y="${artFrame.y}" width="${artFrame.width}" height="${artFrame.height}" /></clipPath></defs>`
+    : '';
+
+  const clippedUnderlay = draft.type !== 'sign' && underlay
+    ? underlay.replace('<image ', '<image clip-path="url(#artClip)" ')
+    : underlay;
+
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}">
-      ${underlay}
+      ${artClipDefs}
+      ${clippedUnderlay}
       <image href="${template}" x="0" y="0" width="${CARD_WIDTH}" height="${CARD_HEIGHT}"/>
       ${buildElementStackMarkup(draft)}
 
@@ -1046,12 +1149,49 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
     }
   };
 
+  const getDraftBaseName = (targetDraft: CardDraft) =>
+    [targetDraft.number.trim(), targetDraft.name.trim()].filter(Boolean).join('_') || 'znaki-card';
+
   const downloadCurrentDraft = async (overrideDraft?: CardDraft) => {
     const targetDraft = overrideDraft ?? draft;
     if (!targetDraft.name.trim()) throw new Error('Введите название карты перед сохранением');
     const svg = await buildCardSvg(targetDraft);
-    const baseName = [targetDraft.number.trim(), targetDraft.name.trim()].filter(Boolean).join('_');
-    await downloadPngFromSvg(svg, baseName);
+    await downloadPngFromSvg(svg, getDraftBaseName(targetDraft));
+  };
+
+  const downloadCurrentDraftData = (overrideDraft?: CardDraft) => {
+    const targetDraft = overrideDraft ?? draft;
+    if (!targetDraft.name.trim()) throw new Error('Введите название карты перед сохранением');
+    downloadTextFile(`${sanitizeFileName(getDraftBaseName(targetDraft))}.txt`, toSpreadsheetRow(targetDraft));
+  };
+
+  const removeBatchItem = async (indexToRemove: number) => {
+    const nextItems = batchItems.filter((_, index) => index !== indexToRemove);
+    setBatchItems(nextItems);
+
+    if (activeBatchIndex === null) {
+      return;
+    }
+
+    if (indexToRemove < activeBatchIndex) {
+      setActiveBatchIndex(activeBatchIndex - 1);
+      return;
+    }
+
+    if (indexToRemove > activeBatchIndex) {
+      return;
+    }
+
+    setActiveBatchIndex(null);
+    setImageError('');
+    setModalError('');
+    if (nextItems.length === 0) {
+      setDraft(makeEmptyDraft());
+      setBatchStatus('Очередь пуста.');
+      return;
+    }
+
+    await continueBatchFrom([...nextItems], Math.min(indexToRemove, nextItems.length - 1));
   };
 
   const continueBatchFrom = async (items: BatchItem[], startIndex: number) => {
@@ -1139,6 +1279,15 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
       setModalError(error instanceof Error ? error.message : 'Не удалось скачать карту');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleDownloadData = () => {
+    setModalError('');
+    try {
+      downloadCurrentDraftData();
+    } catch (error) {
+      setModalError(error instanceof Error ? error.message : 'Не удалось скачать данные карты');
     }
   };
 
@@ -1314,7 +1463,17 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                           <div key={item.id} className={`rounded-lg px-3 py-2 text-sm ${activeBatchIndex === index ? 'bg-blue-900/50 text-blue-100 border border-blue-600/60' : 'bg-gray-900/70 text-gray-300 border border-gray-800'}`}>
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-semibold">{item.draft.name || `Строка ${item.rowNumber}`}</span>
-                              <span className="text-xs text-gray-500">#{index + 1}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500">#{index + 1}</span>
+                                <button
+                                  type="button"
+                                  className="rounded bg-red-900/60 px-2 py-0.5 text-[11px] text-red-100 hover:bg-red-800"
+                                  onClick={() => { void removeBatchItem(index); }}
+                                  title="Убрать карту из очереди"
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             </div>
                             {item.missingFields.length > 0 && (
                               <div className="mt-1 text-xs text-amber-300">Не хватает: {item.missingFields.join(', ')}</div>
@@ -1359,6 +1518,20 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
                     disabled={downloading || activeBatchIndex === null}
                   >
                     {downloading ? 'Подготовка...' : '⬇ Скачать PNG и перейти к следующей'}
+                  </button>
+                )}
+                <button
+                  className="rounded-xl bg-cyan-700 px-5 py-3 text-sm font-bold text-white hover:bg-cyan-600"
+                  onClick={handleDownloadData}
+                >
+                  ⬇ Скачать данные TXT
+                </button>
+                {mode === 'batch' && activeBatchIndex !== null && (
+                  <button
+                    className="rounded-xl bg-red-900 px-5 py-3 text-sm font-bold text-red-100 hover:bg-red-800"
+                    onClick={() => { void removeBatchItem(activeBatchIndex); }}
+                  >
+                    Убрать текущую из очереди
                   </button>
                 )}
                 <button
