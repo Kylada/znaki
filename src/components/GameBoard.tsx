@@ -210,7 +210,7 @@ export const GameBoard: React.FC = () => {
           </div>
 
           {/* Player hand */}
-          <div className="flex-shrink-0 bg-blue-950/10 border-t border-gray-800 mt-auto">
+          <div className="flex-shrink-0 bg-blue-950/10 border-t border-gray-800 mt-auto" data-menu-lower-bound="true">
             <div className="flex items-center justify-between px-2 py-0.5">
               <span className="text-xs text-blue-400 font-bold flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>

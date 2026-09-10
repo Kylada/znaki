@@ -671,9 +671,12 @@ const buildCardSvg = async (draft: CardDraft) => {
 
   const titleLayout = fitSingleLine(titleText, TITLE_RECT.width, 60, 22, 'Arial Black, Arial, sans-serif', 900);
   const subtypeLayout = fitSingleLine(subtypeText || ' ', SUBTYPE_RECT.width, 48, 16, 'Arial Black, Arial, sans-serif', 800);
-  const costLayout = fitSingleLine(costText, COST_RECT.width * 0.82, 96, 26, "Georgia, 'Times New Roman', serif", 700);
-  const attackLayout = fitSingleLine(attackText, ATTACK_VALUE_RECT.width * 0.9, 68, 22, 'Arial Black, Arial, sans-serif', 900);
-  const healthLayout = fitSingleLine(healthText, HEALTH_VALUE_RECT.width * 0.9, 68, 22, 'Arial Black, Arial, sans-serif', 900);
+  const costWidthFactor = costText.length >= 3 ? 0.82 : costText.length === 2 ? 0.98 : 1.08;
+  const attackWidthFactor = attackText.length >= 3 ? 0.9 : attackText.length === 2 ? 1.02 : 1.1;
+  const healthWidthFactor = healthText.length >= 3 ? 0.9 : healthText.length === 2 ? 1.02 : 1.1;
+  const costLayout = fitSingleLine(costText, COST_RECT.width * costWidthFactor, 96, 26, "Georgia, 'Times New Roman', serif", 700);
+  const attackLayout = fitSingleLine(attackText, ATTACK_VALUE_RECT.width * attackWidthFactor, 68, 22, 'Arial Black, Arial, sans-serif', 900);
+  const healthLayout = fitSingleLine(healthText, HEALTH_VALUE_RECT.width * healthWidthFactor, 68, 22, 'Arial Black, Arial, sans-serif', 900);
   const effectLayout = fitTextToShapedArea(
     effectText,
     textRect,

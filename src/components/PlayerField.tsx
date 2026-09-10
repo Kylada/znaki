@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { Card } from './Card';
 import type { CardInstance, Zone } from '../types';
@@ -12,6 +12,9 @@ type StackDropPosition = 'above' | 'below';
 
 const HOTSPOT_TOP_RATIO = 0.25;
 const HOTSPOT_BOTTOM_RATIO = 0.75;
+const STACK_OFFSET_X = 5;
+const STACK_OFFSET_Y = 6;
+const MAX_VISIBLE_PEEKS = 5;
 
 const hasCardPayload = (e: React.DragEvent) =>
   Array.from(e.dataTransfer.types).includes('application/x-znaki-card') ||
@@ -36,8 +39,16 @@ const FieldStackCard: React.FC<{
   onCardDrop: (e: React.DragEvent, cardId: string) => void;
 }> = ({ card, isOpponent, activeHotspot, onCardClick, onCardDragOver, onCardDragLeave, onCardDrop }) => {
   const { combatState, draggingCardId, getStackedCards, openContextMenu } = useGameStore();
-  const attachedCards = getStackedCards(card.instanceId);
 
+  const flattenedAttachedCards = useMemo(() => {
+    const collect = (parentId: string): CardInstance[] => {
+      const directChildren = getStackedCards(parentId);
+      return directChildren.flatMap(child => [child, ...collect(child.instanceId)]);
+    };
+    return collect(card.instanceId);
+  }, [card.instanceId, getStackedCards]);
+
+  const visiblePeeks = flattenedAttachedCards.slice(0, MAX_VISIBLE_PEEKS);
   const isAttacker = combatState.attackerId === card.instanceId;
   const isTarget = combatState.targetIds.includes(card.instanceId);
   const isDefender = combatState.defenderIds.includes(card.instanceId);
@@ -46,12 +57,42 @@ const FieldStackCard: React.FC<{
   const bottomHotspotActive = activeHotspot?.cardId === card.instanceId && activeHotspot.position === 'below';
 
   return (
-    <div className="flex flex-col items-start">
+    <div
+      className="relative inline-block"
+      style={{
+        paddingRight: visiblePeeks.length * STACK_OFFSET_X,
+        paddingBottom: visiblePeeks.length * STACK_OFFSET_Y,
+      }}
+    >
+      {visiblePeeks.map((attachedCard, index) => (
+        <div
+          key={attachedCard.instanceId}
+          className="absolute"
+          style={{
+            top: (index + 1) * STACK_OFFSET_Y,
+            left: (index + 1) * STACK_OFFSET_X,
+            zIndex: index + 1,
+          }}
+        >
+          <Card
+            card={attachedCard}
+            isOpponent={attachedCard.controllerId !== useGameStore.getState().localPlayerId}
+            draggable={false}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openContextMenu(attachedCard.instanceId, e.clientX, e.clientY);
+            }}
+          />
+        </div>
+      ))}
+
       <div
         className={`relative transition-all ${card.position === 'defense' ? 'mx-3 my-2' : ''}
           ${isAttacker ? 'ring-4 ring-red-500 scale-105 z-10' : ''}
           ${isTarget ? 'ring-4 ring-yellow-500 scale-105 z-10' : ''}
           ${isDefender ? 'ring-4 ring-blue-500 scale-105 z-10' : ''}`}
+        style={{ zIndex: 20 }}
         onDragOver={(e) => onCardDragOver(e, card.instanceId)}
         onDragLeave={(e) => onCardDragLeave(e, card.instanceId)}
         onDrop={(e) => onCardDrop(e, card.instanceId)}
@@ -94,38 +135,21 @@ const FieldStackCard: React.FC<{
           </>
         )}
 
-        {attachedCards.length > 0 && (
-          <div className="absolute -bottom-2 -right-2 z-20 rounded-full border border-gray-500 bg-gray-900/95 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300 shadow-lg">
-            +{attachedCards.length}
+        {flattenedAttachedCards.length > 0 && (
+          <div className="absolute -bottom-2 -right-2 z-30 rounded-full border border-gray-500 bg-gray-900/95 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300 shadow-lg">
+            +{flattenedAttachedCards.length}
           </div>
         )}
         {isAttacker && (
-          <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[10px] px-1 rounded font-bold z-20">⚔️</div>
+          <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[10px] px-1 rounded font-bold z-30">⚔️</div>
         )}
         {isTarget && (
-          <div className="absolute -top-2 -right-2 bg-yellow-600 text-white text-[10px] px-1 rounded font-bold z-20">🎯</div>
+          <div className="absolute -top-2 -right-2 bg-yellow-600 text-white text-[10px] px-1 rounded font-bold z-30">🎯</div>
         )}
         {isDefender && (
-          <div className="absolute -top-2 -left-2 bg-blue-600 text-white text-[10px] px-1 rounded font-bold z-20">🛡</div>
+          <div className="absolute -top-2 -left-2 bg-blue-600 text-white text-[10px] px-1 rounded font-bold z-30">🛡</div>
         )}
       </div>
-
-      {attachedCards.length > 0 && (
-        <div className="ml-5 -mt-4 border-l border-dashed border-gray-600/70 pl-3 pt-4 space-y-1">
-          {attachedCards.map(attachedCard => (
-            <FieldStackCard
-              key={attachedCard.instanceId}
-              card={attachedCard}
-              isOpponent={isOpponent}
-              activeHotspot={activeHotspot}
-              onCardClick={onCardClick}
-              onCardDragOver={onCardDragOver}
-              onCardDragLeave={onCardDragLeave}
-              onCardDrop={onCardDrop}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 };

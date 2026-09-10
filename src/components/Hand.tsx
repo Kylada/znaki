@@ -40,6 +40,7 @@ export const Hand: React.FC<HandProps> = ({ playerId, isOpponent }) => {
 
   return (
     <div
+      data-hand-zone={isOpponent ? 'opponent' : 'local'}
       className="flex items-center gap-1 flex-wrap justify-center py-1 px-2 min-h-[40px] transition-all"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
