@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { Card } from './Card';
 import type { CardInstance, Zone } from '../types';
@@ -12,8 +12,8 @@ type StackDropPosition = 'above' | 'below';
 
 const HOTSPOT_TOP_RATIO = 0.25;
 const HOTSPOT_BOTTOM_RATIO = 0.75;
-const STACK_OFFSET_X = 5;
-const STACK_OFFSET_Y = 6;
+const STACK_OFFSET_X = 14;
+const STACK_OFFSET_Y = 14;
 const MAX_VISIBLE_PEEKS = 5;
 
 const hasCardPayload = (e: React.DragEvent) =>
@@ -40,13 +40,12 @@ const FieldStackCard: React.FC<{
 }> = ({ card, isOpponent, activeHotspot, onCardClick, onCardDragOver, onCardDragLeave, onCardDrop }) => {
   const { combatState, draggingCardId, getStackedCards, openContextMenu } = useGameStore();
 
-  const flattenedAttachedCards = useMemo(() => {
-    const collect = (parentId: string): CardInstance[] => {
-      const directChildren = getStackedCards(parentId);
-      return directChildren.flatMap(child => [child, ...collect(child.instanceId)]);
-    };
-    return collect(card.instanceId);
-  }, [card.instanceId, getStackedCards]);
+  const collectAttachedCards = (parentId: string): CardInstance[] => {
+    const directChildren = getStackedCards(parentId);
+    return directChildren.flatMap(child => [child, ...collectAttachedCards(child.instanceId)]);
+  };
+
+  const flattenedAttachedCards = collectAttachedCards(card.instanceId);
 
   const visiblePeeks = flattenedAttachedCards.slice(0, MAX_VISIBLE_PEEKS);
   const isAttacker = combatState.attackerId === card.instanceId;

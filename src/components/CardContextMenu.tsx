@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useGameStore } from '../store/gameStore';
 import { Card } from './Card';
@@ -101,12 +101,13 @@ export const CardContextMenu: React.FC = () => {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({ visibility: 'hidden' });
 
-  if (!contextMenuCardId || !contextMenuPosition) return null;
-  const card = getCard(contextMenuCardId);
-  if (!card) return null;
-
+  const currentCardId = contextMenuCardId ?? '';
+  const currentMenuPosition = contextMenuPosition ?? { x: 0, y: 0 };
+  const card = currentCardId ? getCard(currentCardId) ?? null : null;
   const opponentId = Object.keys(players).find(id => id !== localPlayerId) || '';
-  const cardPlayerId = Object.keys(players).find(pid => players[pid].cards.some(c => c.instanceId === contextMenuCardId)) || '';
+  const cardPlayerId = currentCardId
+    ? Object.keys(players).find(pid => players[pid].cards.some(c => c.instanceId === currentCardId)) || ''
+    : '';
   const player = players[cardPlayerId];
 
   const zones: { label: string; zone: Zone; faceDown?: boolean }[] = [
@@ -120,31 +121,38 @@ export const CardContextMenu: React.FC = () => {
     { label: '→ Пустоту', zone: 'void' },
   ];
 
-  const stackRoot = useMemo(() => {
-    let current = card;
+  const getStackRoot = (startCard: CardInstance | null): CardInstance | null => {
+    if (!startCard) return null;
+    let current: CardInstance = startCard;
     while (current.fieldStackedUnder) {
       const parent = getCard(current.fieldStackedUnder);
       if (!parent) break;
       current = parent;
     }
     return current;
-  }, [card, getCard, players]);
+  };
 
-  const stackHasRelations = !!card.fieldStackedUnder || getStackedCards(card.instanceId).length > 0 || getStackedCards(stackRoot.instanceId).length > 0;
+  const stackRoot = getStackRoot(card);
+
+  const stackHasRelations = !!card && !!stackRoot && (
+    !!card.fieldStackedUnder ||
+    getStackedCards(card.instanceId).length > 0 ||
+    getStackedCards(stackRoot.instanceId).length > 0
+  );
 
   const openCardMenu = (cardId: string) => {
-    openContextMenu(cardId, contextMenuPosition.x, contextMenuPosition.y);
+    openContextMenu(cardId, currentMenuPosition.x, currentMenuPosition.y);
   };
 
   const handleMove = (zone: Zone, faceDown?: boolean) => {
-    moveCard(contextMenuCardId, zone, faceDown);
+    moveCard(currentCardId, zone, faceDown);
     closeContextMenu();
   };
 
   const handleCounterSubmit = (add: boolean) => {
     if (counterName) {
-      if (add) addCounter(contextMenuCardId, counterName, counterAmount);
-      else removeCounter(contextMenuCardId, counterName, counterAmount);
+      if (add) addCounter(currentCardId, counterName, counterAmount);
+      else removeCounter(currentCardId, counterName, counterAmount);
     }
     setShowCounterInput(false);
     setCounterName('');
@@ -152,13 +160,13 @@ export const CardContextMenu: React.FC = () => {
   };
 
   const handleStatSubmit = () => {
-    if (showStatInput === 'attack') setCardAttack(contextMenuCardId, statValue);
-    if (showStatInput === 'health') setCardHealth(contextMenuCardId, statValue);
+    if (showStatInput === 'attack') setCardAttack(currentCardId, statValue);
+    if (showStatInput === 'health') setCardHealth(currentCardId, statValue);
     setShowStatInput(null);
   };
 
   const handleSeal = (crystalIndex: number) => {
-    sealCard(contextMenuCardId, crystalIndex, cardPlayerId);
+    sealCard(currentCardId, crystalIndex, cardPlayerId);
     setShowSealPicker(false);
     closeContextMenu();
   };
@@ -177,8 +185,8 @@ export const CardContextMenu: React.FC = () => {
       const maxTopFromViewport = window.innerHeight - effectiveMenuHeight - 10;
 
       setMenuStyle({
-        left: Math.max(10, Math.min(contextMenuPosition.x, maxLeft)),
-        top: Math.max(10, Math.min(contextMenuPosition.y, maxTopFromHand, maxTopFromViewport)),
+        left: Math.max(10, Math.min(currentMenuPosition.x, maxLeft)),
+        top: Math.max(10, Math.min(currentMenuPosition.y, maxTopFromHand, maxTopFromViewport)),
         maxHeight,
         visibility: 'visible',
       });
@@ -188,8 +196,8 @@ export const CardContextMenu: React.FC = () => {
     window.addEventListener('resize', updatePosition);
     return () => window.removeEventListener('resize', updatePosition);
   }, [
-    contextMenuPosition.x,
-    contextMenuPosition.y,
+    currentMenuPosition.x,
+    currentMenuPosition.y,
     contextMenuCardId,
     showCounterInput,
     counterName,
@@ -201,6 +209,7 @@ export const CardContextMenu: React.FC = () => {
     players,
   ]);
 
+  if (!contextMenuCardId || !contextMenuPosition || !card || !stackRoot) return null;
   if (typeof document === 'undefined') return null;
 
   return createPortal(

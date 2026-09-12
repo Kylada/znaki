@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import type { CardType, Element } from '../types';
 
@@ -1112,10 +1112,7 @@ export const CardMakerModal: React.FC<CardMakerModalProps> = ({ onClose }) => {
       .finally(() => setImageBusy(false));
   }, [activeBatchIndex, draft.id, draft.imageDataUrl, draft.imageUrl, draft.type]);
 
-  const requiredBatchMissingFields = useMemo(() => {
-    if (!currentBatchItem) return [];
-    return getMissingFields(draft);
-  }, [currentBatchItem, draft]);
+  const requiredBatchMissingFields = currentBatchItem ? getMissingFields(draft) : [];
 
   const resolveUrlImage = async () => {
     if (!draft.imageUrl.trim()) return;
